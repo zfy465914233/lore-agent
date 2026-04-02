@@ -105,32 +105,47 @@ Query → Router (local-led or web-led)
 
 ## Project Structure
 
+### Standalone mode
+
 ```
 lore-agent/
 ├── mcp_server.py              # MCP server (Claude Code + VS Code Copilot)
-├── .mcp.json                  # Claude Code MCP config
-├── .vscode/mcp.json           # VS Code Copilot MCP config
+├── setup_mcp.py               # Setup script for embedding into other projects
 ├── docker-compose.yml         # SearXNG for web research
 ├── requirements.txt           # Core dependencies (zero external deps)
 ├── schemas/
 │   ├── answer.schema.json     # Structured answer schema
 │   └── evidence.schema.json   # Evidence schema
 ├── scripts/
+│   ├── lore_config.py         # Shared config reader (.lore.json)
 │   ├── local_index.py         # Build BM25 index from knowledge cards
 │   ├── local_retrieve.py      # Hybrid retrieval (BM25 + embedding)
-│   ├── embedding_retrieve.py  # Semantic embedding (sentence-transformers)
 │   ├── bm25.py                # Pure Python BM25 implementation
 │   ├── research_harness.py    # Web research (SearXNG + OpenAlex + Semantic Scholar)
 │   ├── close_knowledge_loop.py# Save research → knowledge card → reindex
 │   ├── synthesize_answer.py   # Answer synthesis (LLM API or --local-answer)
-│   ├── agent.py               # Agent control loop (Router/Researcher/Synthesizer/Curator)
+│   ├── agent.py               # Agent control loop
 │   ├── orchestrate_research.py# Query routing and evidence orchestration
 │   └── retry.py               # Exponential backoff for external APIs
-├── knowledge/                 # Knowledge cards organized by topic
-│   ├── templates/             # Card templates (definition, method, research-note, etc.)
-│   └── examples/              # Example cards to get started
+├── knowledge/                 # Knowledge cards (templates + examples)
 ├── indexes/                   # Generated (gitignored)
 └── tests/                     # 74 tests, ~4s
+```
+
+### Embedded mode (after `setup_mcp.py`)
+
+```
+your-project/
+├── .lore.json                 # Config: paths to knowledge and indexes
+├── knowledge/                 # Your project's knowledge (follows the project)
+│   ├── templates/             # Card templates
+│   └── examples/              # Example cards
+├── indexes/                   # Generated (gitignored)
+├── lore-agent/                # Engine only — can be gitignored
+│   ├── scripts/
+│   ├── mcp_server.py
+│   └── ...
+└── CLAUDE.md                  # Auto-generated AI instructions
 ```
 
 ## Adding Knowledge
