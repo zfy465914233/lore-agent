@@ -204,7 +204,16 @@ def collect_candidates(queries: list[str]) -> list[SearchCandidate]:
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
     for query in queries:
-        for item in search_searxng(query):
+        raw_items = []
+        try:
+            raw_items.extend(search_searxng(query))
+        except RuntimeError:
+            pass  # Ignore failing SearXNG if it happens, academic APIs might still hit
+
+        raw_items.extend(search_openalex(query))
+        raw_items.extend(search_semanticscholar(query))
+
+        for item in raw_items:
             url = item.get("url") or item.get("link")
             if not url or url in seen_urls:
                 continue
@@ -223,7 +232,13 @@ def collect_candidates(queries: list[str]) -> list[SearchCandidate]:
 
 def search_searxng(query: str) -> list[dict[str, Any]]:
     url = f"{SEARXNG_BASE_URL.rstrip('/')}/search?q={quote_plus(query)}&format=json"
-    request = Request(url, headers={"User-Agent": "optimizer-research-harness/0.1"})
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "optimizer-research-harness/0.1",
+            "X-Forwarded-For": "127.0.0.1",
+        }
+    )
     try:
         with urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -233,6 +248,52 @@ def search_searxng(query: str) -> list[dict[str, Any]]:
             "If the container is not running, start it with 'docker compose up -d searxng' in the optimizer directory."
         ) from exc
     return payload.get("results", [])
+
+
+def search_openalex(query: str) -> list[dict[str, Any]]:
+    url = f"https://api.openalex.org/works?search={quote_plus(query)}"
+    request = Request(
+        url,
+        headers={"User-Agent": "optimizer-research-harness/0.1 (mailto:harness@example.com)"}
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, OSError, json.JSONDecodeError):
+        return []
+    
+    results = []
+    for item in payload.get("results", [])[:5]:
+        results.append({
+            "url": item.get("doi") or item.get("id"),
+            "title": item.get("title", ""),
+            "content": "", # OpenAlex abstract is inverted index, hard to parse briefly, so we leave snippet empty to force fetch
+            "publishedDate": item.get("publication_date", "")
+        })
+    return results
+
+
+def search_semanticscholar(query: str) -> list[dict[str, Any]]:
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={quote_plus(query)}&limit=5&fields=title,url,abstract,year"
+    request = Request(
+        url,
+        headers={"User-Agent": "optimizer-research-harness/0.1"}
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, OSError, json.JSONDecodeError):
+        return [] # Soft degrade on 429 Rate Limit
+
+    results = []
+    for item in payload.get("data", []):
+        results.append({
+            "url": item.get("url", ""),
+            "title": item.get("title", ""),
+            "content": item.get("abstract", ""),
+            "publishedDate": f"{item.get('year')}-01-01" if item.get("year") else ""
+        })
+    return results
 
 
 def build_evidence(user_query: str, candidate: SearchCandidate) -> dict[str, Any]:

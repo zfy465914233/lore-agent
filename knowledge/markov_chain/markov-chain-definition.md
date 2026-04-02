@@ -2,7 +2,7 @@
 id: markov-chain-definition
 title: Markov Chain Definition
 type: definition
-topic: stochastic_processes
+topic: markov_chain
 tags:
   - markov-chain
   - probability
@@ -39,4 +39,3 @@ This definition is the entry point for transition matrices, stationary distribut
 - transition matrix
 - stationary distribution
 - irreducibility
-

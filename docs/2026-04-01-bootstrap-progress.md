@@ -42,10 +42,16 @@ Completed:
    - comparison
    - decision record
 3. added 2 seed cards:
-   - `knowledge/cards/definitions/markov-chain-definition.md`
-   - `knowledge/cards/derivations/stationary-distribution-derivation.md`
+   - `knowledge/markov_chain/markov-chain-definition.md`
+   - `knowledge/markov_chain/stationary-distribution-derivation.md`
 4. created the local index output directory:
    - `indexes/local/`
+
+Current knowledge layout rule:
+
+1. organize materials by domain folder
+2. do not split domain content into deeper type-based folders
+3. use frontmatter `type` plus filename prefixes such as `draft-` or `candidate-` when stage distinction is needed
 
 ### 2.3 Local Indexing
 
@@ -221,14 +227,21 @@ Completed:
 2. current behavior:
    - reads a distilled Markdown draft
    - infers a minimal card type from the original query
+   - infers a domain folder from the query
    - writes a structured candidate card into the local knowledge tree
    - preserves source references and direct-support content
 
 Current promotion behavior:
 
-1. `what is ...` and definition-style queries -> `cards/definitions/`
-2. derivation-style queries -> `cards/derivations/`
-3. fallback -> `cards/methods/`
+1. type is inferred from the query and stored in frontmatter
+2. destination folder is domain-based, for example:
+   - `markov_chain`
+   - `quantum_phase_estimation`
+   - `linear_programming`
+   - `model_quantization`
+   - `qpe`
+3. fallback destination is `general`
+4. promoted candidate filenames use the `candidate-` prefix
 
 ### 2.11 Round-Trip Accumulation Verified
 

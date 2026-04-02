@@ -2,7 +2,7 @@
 id: qpe-error-bound-derivation
 title: QPE Error Bound Derivation Sketch
 type: derivation
-topic: quantum_computing
+topic: quantum_phase_estimation
 tags:
   - qpe
   - quantum-phase-estimation
@@ -43,4 +43,3 @@ This card is a sketch only. It is meant to anchor later import of a full derivat
 ## Checks
 
 When upgrading this card, add the explicit probability bound and one worked example.
-

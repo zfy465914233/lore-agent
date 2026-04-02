@@ -4,6 +4,7 @@ server:
   secret_key: "harness-local-dev-key-change-in-prod"
   bind_address: "0.0.0.0"
   port: 8080
+  limiter: false
 
 search:
   safe_search: 0

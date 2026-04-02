@@ -38,19 +38,34 @@ def parse_query(text: str) -> str:
     return lines[0].strip() if lines else "untitled query"
 
 
-def infer_card_type(query: str) -> tuple[str, str]:
+def infer_card_type(query: str) -> str:
     normalized = query.lower().strip()
     if normalized.startswith("what is ") or " definition" in normalized:
-        return "definition", "definitions"
+        return "definition"
     if "derive" in normalized or "derivation" in normalized or "proof" in normalized:
-        return "derivation", "derivations"
+        return "derivation"
     if "theorem" in normalized:
-        return "theorem", "theorems"
+        return "theorem"
     if normalized.startswith("compare ") or " comparison" in normalized:
-        return "comparison", "comparisons"
+        return "comparison"
     if normalized.startswith("decision ") or "decision on " in normalized:
-        return "decision_record", "decision_records"
-    return "method", "methods"
+        return "decision_record"
+    return "method"
+
+
+def infer_domain_folder(query: str) -> str:
+    normalized = query.lower().strip()
+    if any(term in normalized for term in ("markov", "stationary distribution", "stochastic")):
+        return "markov_chain"
+    if any(term in normalized for term in ("x-band", "radar", "rainfall", "precipitation")):
+        return "qpe"
+    if any(term in normalized for term in ("quantum", "iterative qpe", "phase estimation", " qpe")):
+        return "quantum_phase_estimation"
+    if any(term in normalized for term in ("duality", "linear programming", "optimization", "lp ")):
+        return "linear_programming"
+    if any(term in normalized for term in ("quantization", "compression", "deployment")):
+        return "model_quantization"
+    return "general"
 
 
 def collect_citation_ids(text: str) -> list[str]:
@@ -97,13 +112,14 @@ def main() -> int:
     args = parse_args()
     text = args.draft.read_text(encoding="utf-8")
     query = parse_query(text)
-    card_type, folder = infer_card_type(query)
+    card_type = infer_card_type(query)
+    folder = infer_domain_folder(query)
     citation_ids = collect_citation_ids(text)
     direct_support = extract_section(text, "Direct Support")
 
-    output_dir = args.knowledge_root / "cards" / folder
+    output_dir = args.knowledge_root / folder
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"distilled-{slugify(query)}.md"
+    output_path = output_dir / f"candidate-{slugify(query)}.md"
     output_path.write_text(
         build_candidate_markdown(query, card_type, citation_ids, direct_support),
         encoding="utf-8",

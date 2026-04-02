@@ -31,10 +31,11 @@ class LocalIndexTest(unittest.TestCase):
         doc_ids = {doc["doc_id"] for doc in payload["documents"]}
         self.assertIn("markov-chain-definition", doc_ids)
         self.assertIn("stationary-distribution-derivation", doc_ids)
+        self.assertNotIn("README", doc_ids)
 
         definition_doc = next(doc for doc in payload["documents"] if doc["doc_id"] == "markov-chain-definition")
         self.assertEqual("definition", definition_doc["type"])
-        self.assertEqual("stochastic_processes", definition_doc["topic"])
+        self.assertEqual("markov_chain", definition_doc["topic"])
         self.assertIn("markov-chain", definition_doc["tags"])
         self.assertIn("Markov chain is a stochastic process", definition_doc["search_text"])
 

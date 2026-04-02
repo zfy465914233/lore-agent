@@ -185,16 +185,12 @@ This should remain in the system, not be replaced.
 
 This needs to be added.
 
-Recommended content types:
+Recommended organization:
 
-1. `cards/definitions/`
-2. `cards/methods/`
-3. `cards/theorems/`
-4. `cards/derivations/`
-5. `cards/comparisons/`
-6. `cards/decision_records/`
-7. `notes/raw_distillations/`
-8. `sources/` for imported local files or curated references
+1. group knowledge primarily by `domain / topic`
+2. keep `type` in frontmatter metadata instead of using deep type-based folders
+3. reserve a separate top-level folder only for `templates/`
+4. distinguish draft or candidate materials by filename prefix instead of nested folders
 
 Recommended file format:
 
@@ -318,16 +314,12 @@ Recommended target structure:
 optimizer/
   docs/
   knowledge/
-    cards/
-      definitions/
-      methods/
-      theorems/
-      derivations/
-      comparisons/
-      decision_records/
-    notes/
-      raw_distillations/
-    sources/
+    qpe/
+    markov_chain/
+    quantum_phase_estimation/
+    linear_programming/
+    model_quantization/
+    templates/
   indexes/
     local/
   outputs/
@@ -583,7 +575,7 @@ This is the roadmap the current repository should follow.
 
 Current bootstrap workflow:
 
-1. add or edit Markdown cards under `knowledge/cards/`
+1. add or edit Markdown cards under the appropriate domain folder in `knowledge/`
 2. build the local index:
    - `python3 scripts/local_index.py --output indexes/local/index.json`
 3. run lexical local retrieval:
@@ -595,18 +587,19 @@ Current bootstrap workflow:
 6. build a model-agnostic answer context with citations:
    - `python3 scripts/build_answer_context.py "what is a markov chain" --mode mixed --index indexes/local/index.json --research-script tests/fake_research_harness.py`
 7. distill an answer context into a reusable Markdown draft:
-   - `python3 scripts/distill_knowledge.py --answer-context path/to/answer-context.json --output knowledge/notes/raw_distillations/example-distilled-note.md`
+   - `python3 scripts/distill_knowledge.py --answer-context path/to/answer-context.json --output knowledge/qpe/draft-example-distilled-note.md`
 8. promote a distilled draft into a local card candidate:
-   - `python3 scripts/promote_draft.py --draft knowledge/notes/raw_distillations/example-distilled-note.md --knowledge-root knowledge`
+   - `python3 scripts/promote_draft.py --draft knowledge/qpe/draft-example-distilled-note.md --knowledge-root knowledge`
 9. rebuild the index so promoted candidates re-enter the local retrieval loop:
    - `python3 scripts/local_index.py --knowledge-root knowledge --output indexes/local/index.json`
 
 Current bootstrap now includes seed material in multiple target directions:
 
 1. stochastic processes
-2. quantum computing
-3. operations research
+2. quantum phase estimation
+3. linear programming
 4. model quantization
+5. radar QPE
 
 This bootstrap layer is intentionally minimal:
 

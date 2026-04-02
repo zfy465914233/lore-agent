@@ -113,7 +113,7 @@ def main() -> int:
         if warning:
             warnings.append(warning)
 
-    include_web = args.web_evidence or generated_web_path if route in {"web-led", "mixed"} else None
+    include_web = args.web_evidence or generated_web_path
     evidence_pack = build_evidence_pack(args.query, args.index, include_web, args.local_limit)
     _ = build_decision(route, has_web_evidence=include_web is not None)
     payload = build_answer_context(args.query, route, evidence_pack, warnings)

@@ -20,23 +20,22 @@ class RoundTripAccumulationTest(unittest.TestCase):
             draft_path = temp_root / "distilled-markov-note.md"
 
             scaffold_dirs = [
-                knowledge_root / "cards" / "definitions",
-                knowledge_root / "cards" / "methods",
-                knowledge_root / "cards" / "theorems",
-                knowledge_root / "cards" / "derivations",
-                knowledge_root / "cards" / "comparisons",
-                knowledge_root / "cards" / "decision_records",
+                knowledge_root / "markov_chain",
+                knowledge_root / "quantum_phase_estimation",
+                knowledge_root / "linear_programming",
+                knowledge_root / "model_quantization",
+                knowledge_root / "qpe",
             ]
             for path in scaffold_dirs:
                 path.mkdir(parents=True, exist_ok=True)
 
-            seed_card = knowledge_root / "cards" / "definitions" / "markov-chain-definition.md"
+            seed_card = knowledge_root / "markov_chain" / "markov-chain-definition.md"
             seed_card.write_text(
                 """---
 id: markov-chain-definition
 title: Markov Chain Definition
 type: definition
-topic: stochastic_processes
+topic: markov_chain
 tags:
   - markov-chain
   - probability

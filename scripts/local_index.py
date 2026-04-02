@@ -107,11 +107,17 @@ def build_search_text(metadata: dict[str, object], body: str) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
+def is_card(path: Path) -> bool:
+    if "templates" in path.parts or path.name.lower() == "readme.md" or not path.is_file():
+        return False
+    return path.read_text(encoding="utf-8").startswith("---\n")
+
+
 def iter_cards(knowledge_root: Path) -> list[Path]:
     return sorted(
         path
         for path in knowledge_root.rglob("*.md")
-        if "templates" not in path.parts and path.is_file()
+        if is_card(path)
     )
 
 

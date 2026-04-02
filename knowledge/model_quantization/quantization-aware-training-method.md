@@ -2,7 +2,7 @@
 id: quantization-aware-training-method
 title: Quantization-Aware Training Method Overview
 type: method
-topic: model_compression
+topic: model_quantization
 tags:
   - quantization
   - qat

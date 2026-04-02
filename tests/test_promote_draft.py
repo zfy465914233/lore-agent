@@ -80,7 +80,7 @@ class PromoteDraftTest(unittest.TestCase):
             )
             self.assertEqual(0, promote_result.returncode, msg=promote_result.stderr)
 
-            promoted_path = promoted_root / "cards" / "definitions" / "distilled-what-is-a-markov-chain.md"
+            promoted_path = promoted_root / "markov_chain" / "candidate-what-is-a-markov-chain.md"
             self.assertTrue(promoted_path.exists(), "promoted card candidate should be written")
 
             text = promoted_path.read_text(encoding="utf-8")
@@ -94,14 +94,14 @@ class PromoteDraftTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             cases = [
-                ("lp duality theorem", temp_root / "knowledge" / "cards" / "theorems" / "distilled-lp-duality-theorem.md"),
+                ("lp duality theorem", temp_root / "knowledge" / "linear_programming" / "candidate-lp-duality-theorem.md"),
                 (
                     "compare qpe and iterative qpe",
-                    temp_root / "knowledge" / "cards" / "comparisons" / "distilled-compare-qpe-and-iterative-qpe.md",
+                    temp_root / "knowledge" / "quantum_phase_estimation" / "candidate-compare-qpe-and-iterative-qpe.md",
                 ),
                 (
                     "decision on quantization deployment",
-                    temp_root / "knowledge" / "cards" / "decision_records" / "distilled-decision-on-quantization-deployment.md",
+                    temp_root / "knowledge" / "model_quantization" / "candidate-decision-on-quantization-deployment.md",
                 ),
             ]
 

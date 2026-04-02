@@ -2,7 +2,7 @@
 id: stationary-distribution-derivation
 title: Stationary Distribution Derivation For A Finite Markov Chain
 type: derivation
-topic: stochastic_processes
+topic: markov_chain
 tags:
   - markov-chain
   - stationary-distribution

@@ -2,7 +2,7 @@
 id: lp-duality-theorem
 title: Linear Programming Duality Theorem
 type: theorem
-topic: operations_research
+topic: linear_programming
 tags:
   - linear-programming
   - duality
@@ -35,4 +35,3 @@ Weak duality follows by comparing any primal-feasible solution with any dual-fea
 - simplex method
 - complementary slackness
 - convex optimization
-

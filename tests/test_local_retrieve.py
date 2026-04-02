@@ -44,10 +44,14 @@ class LocalRetrieveTest(unittest.TestCase):
         top = payload["results"][0]
         self.assertEqual("markov-chain-definition", top["doc_id"])
         self.assertEqual("definition", top["type"])
-        self.assertEqual("stochastic_processes", top["topic"])
+        self.assertEqual("markov_chain", top["topic"])
         self.assertIn("markov", top["matched_terms"])
         self.assertGreater(top["score"], 0)
-        self.assertTrue(top["path"].endswith("knowledge/cards/definitions/markov-chain-definition.md"))
+        self.assertTrue(top["path"].endswith("knowledge/markov_chain/markov-chain-definition.md"))
+        doc_ids = {item["doc_id"] for item in payload["results"]}
+        self.assertNotIn("README", doc_ids)
+        self.assertNotIn("lp-duality-theorem", doc_ids)
+        self.assertNotIn("qpe-error-bound-derivation", doc_ids)
 
 
 if __name__ == "__main__":

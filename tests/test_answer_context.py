@@ -103,6 +103,55 @@ class AnswerContextTest(unittest.TestCase):
             self.assertTrue(any("limited" in note.lower() for note in payload["inference_notes"]))
             self.assertTrue(any("no direct evidence" in note.lower() for note in payload["uncertainty_notes"]))
 
+    def test_answer_context_keeps_explicit_web_bundle_for_local_led_mode(self) -> None:
+        web_payload = {
+            "query": "what is a markov chain",
+            "depth": "quick",
+            "generated_at": "2026-04-01T00:00:00+00:00",
+            "summary": {"total_evidence": 1},
+            "validation": {"ok": True, "errors": []},
+            "evidence": [
+                {
+                    "query": "what is a markov chain",
+                    "source_type": "docs",
+                    "url": "https://example.com/local-led-bundle",
+                    "title": "Local-Led Bundle",
+                    "summary": "Supplementary web bundle.",
+                    "retrieved_at": "2026-04-01T00:00:00+00:00",
+                    "retrieval_status": "succeeded",
+                }
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump(web_payload, handle)
+            web_path = Path(handle.name)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/build_answer_context.py",
+                "what is a markov chain",
+                "--mode",
+                "local-led",
+                "--index",
+                str(INDEX_PATH),
+                "--web-evidence",
+                str(web_path),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        web_path.unlink(missing_ok=True)
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        payload = json.loads(result.stdout)
+        web_citations = [item for item in payload["citations"] if item["origin"] == "web"]
+        self.assertEqual(1, len(web_citations))
+        self.assertEqual("Local-Led Bundle", web_citations[0]["title"])
+        self.assertTrue(any("web evidence is present" in note.lower() for note in payload["uncertainty_notes"]))
+
 
 if __name__ == "__main__":
     unittest.main()

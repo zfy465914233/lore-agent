@@ -32,6 +32,8 @@ class ResearchOrchestratorTest(unittest.TestCase):
             "latest markov chain tutorial",
             "--index",
             str(INDEX_PATH),
+            "--research-script",
+            str(FAKE_HARNESS),
         ]
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
 
@@ -39,6 +41,7 @@ class ResearchOrchestratorTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertEqual("web-led", payload["route"])
         self.assertEqual("web", payload["decision"]["primary_source"])
+        self.assertEqual(1, payload["evidence_pack"]["web_count"])
 
     def test_auto_mode_prefers_local_led_for_definition_queries(self) -> None:
         command = [

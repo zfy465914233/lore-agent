@@ -9,6 +9,31 @@ from pathlib import Path
 
 
 TOKEN_RE = re.compile(r"[a-z0-9_-]+")
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "is",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,7 +50,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def tokenize(text: str) -> list[str]:
-    return TOKEN_RE.findall(text.lower())
+    return [term for term in TOKEN_RE.findall(text.lower()) if term not in STOPWORDS]
 
 
 def score_document(query_terms: list[str], document: dict[str, object]) -> tuple[int, list[str]]:
