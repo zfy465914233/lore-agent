@@ -8,13 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 class KnowledgeScaffoldTest(unittest.TestCase):
     def test_knowledge_scaffold_structure_exists(self) -> None:
         expected_paths = [
-            ROOT / "knowledge" / "templates" / "definition-card.md",
-            ROOT / "knowledge" / "templates" / "method-card.md",
-            ROOT / "knowledge" / "templates" / "theorem-card.md",
-            ROOT / "knowledge" / "templates" / "derivation-card.md",
-            ROOT / "knowledge" / "templates" / "comparison-card.md",
-            ROOT / "knowledge" / "templates" / "decision-record.md",
-            ROOT / "knowledge" / "templates" / "research-note.md",
+            ROOT / "templates" / "definition-card.md",
+            ROOT / "templates" / "method-card.md",
+            ROOT / "templates" / "theorem-card.md",
+            ROOT / "templates" / "derivation-card.md",
+            ROOT / "templates" / "comparison-card.md",
+            ROOT / "templates" / "decision-record.md",
+            ROOT / "templates" / "research-note.md",
             ROOT / "tests" / "fixtures" / "example-markov-chain.md",
         ]
 

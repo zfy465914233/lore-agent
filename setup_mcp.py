@@ -143,7 +143,7 @@ def setup_lore_config(parent_root: Path, lore_dir: Path) -> None:
 
     # Copy templates if knowledge dir is empty
     knowledge_dir = parent_root / "knowledge"
-    templates_src = lore_dir / "knowledge" / "templates"
+    templates_src = lore_dir / "templates"
     templates_dst = knowledge_dir / "templates"
     if templates_src.exists() and not templates_dst.exists():
         import shutil

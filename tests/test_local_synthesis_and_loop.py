@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 INDEX_PATH = ROOT / "indexes" / "local" / "index.json"
 ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
-RESEARCH_NOTE_TEMPLATE = ROOT / "knowledge" / "templates" / "research-note.md"
+RESEARCH_NOTE_TEMPLATE = ROOT / "templates" / "research-note.md"
 
 
 class LocalAnswerSynthesisTest(unittest.TestCase):
