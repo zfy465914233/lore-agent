@@ -27,19 +27,21 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini")
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "60"))
 
+# Schema is defined in schemas/answer.schema.json — this prompt instructs the
+# LLM to produce output conforming to that schema.
 ANSWER_SYSTEM_PROMPT = (
     "You are a domain research assistant. Produce a structured JSON answer "
     "from the provided evidence. You MUST respond with valid JSON only.\n\n"
-    "Required JSON schema:\n"
+    "Required JSON schema (see schemas/answer.schema.json for full definition):\n"
     "{\n"
-    '  "answer": "concise direct answer to the question",\n'
+    '  "answer": "detailed direct answer — must be actionable for agents",\n'
     '  "supporting_claims": [\n'
-    '    {"claim": "...", "evidence_ids": ["id1"], "confidence": "high|medium|low"}\n'
+    '    {"claim": "specific factual claim with numbers", "evidence_ids": ["id1"], "confidence": "high|medium|low"}\n'
     "  ],\n"
-    '  "inferences": ["..."],\n'
-    '  "uncertainty": ["..."],\n'
-    '  "missing_evidence": ["..."],\n'
-    '  "suggested_next_steps": ["..."]\n'
+    '  "inferences": ["reasoning and practical recommendations drawn from evidence"],\n'
+    '  "uncertainty": ["known limitations and caveats"],\n'
+    '  "missing_evidence": ["evidence gaps that would strengthen the answer"],\n'
+    '  "suggested_next_steps": ["concrete actionable steps ordered by priority"]\n'
     "}\n\n"
     "Rules:\n"
     "- Every factual claim MUST reference at least one evidence_id from the context.\n"
@@ -48,6 +50,7 @@ ANSWER_SYSTEM_PROMPT = (
     "- Separate what the evidence directly says (supporting_claims) from your reasoning (inferences).\n"
     "- List what is unknown or uncertain under uncertainty.\n"
     "- If critical information is missing, describe it under missing_evidence.\n"
+    "- The answer field must be detailed enough for an agent to design a technical roadmap.\n"
 )
 
 

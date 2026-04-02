@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 DEFAULT_KNOWLEDGE_ROOT = ROOT / "knowledge"
 DEFAULT_INDEX = ROOT / "indexes" / "local" / "index.json"
+ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,6 +86,46 @@ def collect_source_urls(research_data: dict | None) -> list[str]:
         if url and url not in urls:
             urls.append(url)
     return urls
+
+
+def validate_answer_schema(answer_data: dict) -> list[str]:
+    """Validate answer_data against schemas/answer.schema.json.
+
+    Returns a list of warning messages. Empty list means valid.
+    Does not abort — warnings are informational only.
+    """
+    if not ANSWER_SCHEMA_PATH.exists():
+        return ["Answer schema file not found, skipping validation"]
+
+    schema = json.loads(ANSWER_SCHEMA_PATH.read_text(encoding="utf-8"))
+    warnings: list[str] = []
+    required = schema.get("required", [])
+    props = schema.get("properties", {})
+
+    # Check required fields
+    for field in required:
+        if field not in answer_data:
+            warnings.append(f"Missing required field: {field}")
+        elif field == "answer" and not isinstance(answer_data[field], str):
+            warnings.append(f"Field 'answer' must be a string, got {type(answer_data[field]).__name__}")
+        elif field == "supporting_claims":
+            if not isinstance(answer_data[field], list):
+                warnings.append("Field 'supporting_claims' must be an array")
+            else:
+                claim_schema = props.get("supporting_claims", {}).get("items", {})
+                claim_required = claim_schema.get("required", [])
+                for i, claim in enumerate(answer_data[field]):
+                    if not isinstance(claim, dict):
+                        warnings.append(f"supporting_claims[{i}] must be an object")
+                        continue
+                    for cf in claim_required:
+                        if cf not in claim:
+                            warnings.append(f"supporting_claims[{i}] missing required field: {cf}")
+                    conf = claim.get("confidence", "")
+                    if conf and conf not in ("high", "medium", "low"):
+                        warnings.append(f"supporting_claims[{i}] confidence must be high/medium/low, got '{conf}'")
+
+    return warnings
 
 
 def build_knowledge_card(
@@ -215,6 +256,11 @@ def main() -> int:
     if args.research and args.research.exists():
         research_data = json.loads(args.research.read_text(encoding="utf-8"))
     answer_data = json.loads(args.answer.read_text(encoding="utf-8"))
+
+    # Step 0: Validate answer against schema
+    schema_warnings = validate_answer_schema(answer_data)
+    for w in schema_warnings:
+        print(f"Schema warning: {w}", file=sys.stderr)
 
     # Step 1: Build knowledge card
     card_path = build_knowledge_card(

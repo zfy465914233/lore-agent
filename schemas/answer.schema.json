@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StructuredAnswer",
+  "description": "Schema for research answers produced by the synthesis layer and consumed by the knowledge loop. Every answer flowing through synthesize_answer.py and close_knowledge_loop.py must conform to this schema.",
+  "type": "object",
+  "required": ["answer", "supporting_claims"],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Concise direct answer to the question. Should be detailed enough for an agent to gain actionable knowledge and design technical roadmaps."
+    },
+    "supporting_claims": {
+      "type": "array",
+      "description": "Factual claims directly supported by evidence. Each claim must reference at least one evidence_id.",
+      "items": {
+        "type": "object",
+        "required": ["claim", "evidence_ids", "confidence"],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "description": "The factual claim text. Include specific quantitative results when available."
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "IDs of evidence items that support this claim."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Confidence level of this claim based on evidence strength."
+          }
+        }
+      }
+    },
+    "inferences": {
+      "type": "array",
+      "default": [],
+      "description": "Reasoning and conclusions drawn from the evidence, but not directly stated by any single source. Should include practical recommendations and technical roadmaps.",
+      "items": { "type": "string" }
+    },
+    "uncertainty": {
+      "type": "array",
+      "default": [],
+      "description": "Known limitations, caveats, and areas where evidence is weak or conflicting.",
+      "items": { "type": "string" }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "default": [],
+      "description": "Specific evidence gaps that would strengthen the answer if filled. Useful for guiding future research.",
+      "items": { "type": "string" }
+    },
+    "suggested_next_steps": {
+      "type": "array",
+      "default": [],
+      "description": "Actionable next steps for the user, ordered by priority. Should be concrete enough to execute.",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -10,6 +10,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 INDEX_PATH = ROOT / "indexes" / "local" / "index.json"
+ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
+RESEARCH_NOTE_TEMPLATE = ROOT / "knowledge" / "templates" / "research-note.md"
 
 
 class LocalAnswerSynthesisTest(unittest.TestCase):
@@ -111,6 +113,110 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertGreater(len(payload["results"]), 0)
         self.assertIn("xgboost", payload["results"][0]["doc_id"].lower())
+
+    def test_close_loop_card_has_all_sections(self) -> None:
+        """Card written by close_knowledge_loop must contain all standard sections."""
+        answer = {
+            "answer": "Test answer",
+            "supporting_claims": [
+                {"claim": "c1", "evidence_ids": ["e1"], "confidence": "high"},
+            ],
+            "inferences": ["inf1"],
+            "uncertainty": ["unc1"],
+            "missing_evidence": ["miss1"],
+            "suggested_next_steps": ["step1"],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            answer_path = Path(tmpdir) / "answer.json"
+            answer_path.write_text(json.dumps(answer))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "close_knowledge_loop.py"),
+                 "--query", "test schema validation query",
+                 "--answer", str(answer_path)],
+                capture_output=True, text=True, cwd=ROOT,
+            )
+            self.assertEqual(0, result.returncode, msg=result.stderr)
+
+            card_path = ROOT / "knowledge" / "general" / "research-test-schema-validation-query.md"
+            self.assertTrue(card_path.exists())
+            content = card_path.read_text()
+
+            for section in [
+                "## Question", "## Answer", "## Supporting Claims",
+                "## Inferences", "## Uncertainty", "## Missing Evidence",
+                "## Suggested Next Steps",
+            ]:
+                self.assertIn(section, content, f"Missing section: {section}")
+
+            # Schema validation should produce no warnings
+            self.assertNotIn("Schema warning", result.stderr)
+
+            # Clean up
+            card_path.unlink()
+            subprocess.run(
+                [sys.executable, str(SCRIPTS / "local_index.py"), "--output", str(INDEX_PATH)],
+                capture_output=True, text=True, cwd=ROOT,
+            )
+
+    def test_close_loop_warns_on_invalid_answer(self) -> None:
+        """Card creation warns when answer JSON doesn't match schema."""
+        answer = {"wrong_field": "no answer or claims"}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            answer_path = Path(tmpdir) / "answer.json"
+            answer_path.write_text(json.dumps(answer))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "close_knowledge_loop.py"),
+                 "--query", "test invalid schema query",
+                 "--answer", str(answer_path)],
+                capture_output=True, text=True, cwd=ROOT,
+            )
+            self.assertEqual(0, result.returncode, msg=result.stderr)
+            self.assertIn("Schema warning", result.stderr)
+            self.assertIn("Missing required field: answer", result.stderr)
+            self.assertIn("Missing required field: supporting_claims", result.stderr)
+
+            # Clean up
+            card_path = ROOT / "knowledge" / "general" / "research-test-invalid-schema-query.md"
+            if card_path.exists():
+                card_path.unlink()
+            subprocess.run(
+                [sys.executable, str(SCRIPTS / "local_index.py"), "--output", str(INDEX_PATH)],
+                capture_output=True, text=True, cwd=ROOT,
+            )
+
+
+class AnswerSchemaTest(unittest.TestCase):
+    """Test the answer schema file and research-note template."""
+
+    def test_answer_schema_file_exists_and_is_valid_json(self) -> None:
+        self.assertTrue(ANSWER_SCHEMA_PATH.exists(), "schemas/answer.schema.json must exist")
+        schema = json.loads(ANSWER_SCHEMA_PATH.read_text())
+        self.assertIn("required", schema)
+        self.assertIn("answer", schema["required"])
+        self.assertIn("supporting_claims", schema["required"])
+
+    def test_answer_schema_has_all_standard_fields(self) -> None:
+        schema = json.loads(ANSWER_SCHEMA_PATH.read_text())
+        props = schema["properties"]
+        for field in [
+            "answer", "supporting_claims", "inferences",
+            "uncertainty", "missing_evidence", "suggested_next_steps",
+        ]:
+            self.assertIn(field, props, f"Schema missing field: {field}")
+
+    def test_research_note_template_exists_and_has_sections(self) -> None:
+        self.assertTrue(RESEARCH_NOTE_TEMPLATE.exists(), "research-note.md template must exist")
+        content = RESEARCH_NOTE_TEMPLATE.read_text()
+        for section in [
+            "## Question", "## Answer", "## Supporting Claims",
+            "## Inferences", "## Uncertainty", "## Missing Evidence",
+            "## Suggested Next Steps",
+        ]:
+            self.assertIn(section, content, f"Template missing section: {section}")
 
 
 if __name__ == "__main__":
