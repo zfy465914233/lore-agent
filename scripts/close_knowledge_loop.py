@@ -94,19 +94,31 @@ def build_knowledge_card(
     knowledge_root: Path,
 ) -> Path:
     """Build a knowledge card from research evidence and structured answer."""
-    answer = answer_data.get("answer", answer_data)
     domain = infer_domain(query)
     slug = slugify(query)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     source_urls = collect_source_urls(research_data)
 
-    # Extract structured content
-    main_answer = answer.get("answer", str(answer)) if isinstance(answer, dict) else str(answer)
-    claims = answer.get("supporting_claims", []) if isinstance(answer, dict) else []
-    inferences = answer.get("inferences", []) if isinstance(answer, dict) else []
-    uncertainties = answer.get("uncertainty", []) if isinstance(answer, dict) else []
-    missing = answer.get("missing_evidence", []) if isinstance(answer, dict) else []
-    next_steps = answer.get("suggested_next_steps", []) if isinstance(answer, dict) else []
+    # Extract structured content — answer_data itself is the structured dict
+    main_answer = answer_data.get("answer", str(answer_data))
+    claims = answer_data.get("supporting_claims", [])
+    inferences = answer_data.get("inferences", [])
+    uncertainties = answer_data.get("uncertainty", [])
+    missing = answer_data.get("missing_evidence", [])
+    next_steps = answer_data.get("suggested_next_steps", [])
+
+    # Infer tags from query and domain
+    base_tags = ["research-note", domain]
+    query_lower = query.lower()
+    for keyword, tag in [
+        ("xgboost", "xgboost"), ("random forest", "random-forest"),
+        ("cnn", "cnn"), ("lstm", "lstm"), ("transformer", "transformer"),
+        ("qpe", "ml-qpe"), ("radar", "radar"), ("rainfall", "rainfall"),
+        ("precipitation", "precipitation"), ("markov", "markov-chain"),
+        ("quantum", "quantum"), ("quantization", "quantization"),
+    ]:
+        if keyword in query_lower and tag not in base_tags:
+            base_tags.append(tag)
 
     # Build frontmatter
     lines = [
@@ -116,14 +128,13 @@ def build_knowledge_card(
         f"type: method",
         f"topic: {domain}",
         "tags:",
-        "  - ml-qpe",
-        "  - xgboost",
-        "  - radar",
-        "  - research-note",
-        "source_refs:",
     ]
-    for url in source_urls[:10]:
-        lines.append(f"  - {url}")
+    for tag in base_tags:
+        lines.append(f"  - {tag}")
+    if source_urls:
+        lines.append("source_refs:")
+        for url in source_urls[:10]:
+            lines.append(f"  - {url}")
     lines.extend([
         "confidence: draft",
         f"updated_at: {now}",
