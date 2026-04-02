@@ -1,18 +1,29 @@
-# Lore — Domain Knowledge Agent with Local Retrieval
+# Lore Agent
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![MCP Ready](https://img.shields.io/badge/MCP-Ready-brightgreen.svg)
 
-A self-contained knowledge system that can be dropped into any project. Provides semantic search over a local knowledge base, web research via SearXNG, structured answer synthesis, and a knowledge improvement loop — all accessible to Claude Code and VS Code Copilot through MCP.
+A **zero-dependency, drop-in knowledge agent** that gives any project local retrieval, web research, structured answer synthesis, and a self-improving knowledge loop — all accessible to Claude Code and VS Code Copilot through MCP.
+
+## Why Lore Agent?
+
+| | Lore Agent | Typical RAG Tool |
+|---|---|---|
+| **Setup** | Drop in, `pip install -r requirements.txt`, done | Vector DB + embedding model + config |
+| **External deps** | Zero. BM25 runs offline, everything else is optional | Usually requires Pinecone/Weaviate/Chroma + OpenAI |
+| **Knowledge lifecycle** | draft → reviewed → trusted → stale → deprecated, with dedup & governance | Add docs, search docs — no lifecycle |
+| **Knowledge loop** | Research → distill → promote → reindex. The system gets smarter over time | One-way: ingest then retrieve |
+| **MCP support** | Claude Code + VS Code Copilot out of the box | Usually one or none |
+| **Answer structure** | Enforced JSON schema: claims, inferences, uncertainty, missing evidence | Raw text chunks |
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt          # core (zero external deps)
-pip install fastmcp                      # for MCP server (optional)
-pip install sentence-transformers        # for semantic retrieval (optional)
+# 1. Clone and install
+git clone https://github.com/zfy465914233/lore-agent.git
+cd lore-agent
+pip install -r requirements.txt
 
 # 2. Build the knowledge index
 python scripts/local_index.py --output indexes/local/index.json
@@ -20,39 +31,63 @@ python scripts/local_index.py --output indexes/local/index.json
 # 3. (Optional) Start SearXNG for web research
 docker compose up -d
 
-# 4. (Optional) Build embedding index for semantic search
+# 4. (Optional) Add semantic retrieval
+pip install sentence-transformers
 python scripts/local_index.py --output indexes/local/index.json --build-embedding-index
 ```
 
 ## MCP Integration
 
-The optimizer exposes 3 tools to LLM agents:
+Lore Agent exposes 3 tools to LLM agents:
 
 | Tool | Description |
 |------|-------------|
 | `query_knowledge(query, limit?)` | Search local knowledge base |
-| `save_research(query, answer_json)` | Save research results as knowledge card |
+| `save_research(query, answer_json)` | Save research results as a knowledge card |
 | `list_knowledge(topic?)` | Browse all knowledge cards |
 
 ### Claude Code
 
-`.mcp.json` is already configured. Just `cd` into the optimizer directory and start Claude Code.
+`.mcp.json` is pre-configured. `cd` into the project and start Claude Code.
 
 ### VS Code Copilot
 
-`.vscode/mcp.json` is already configured. Open the optimizer directory in VS Code, enable Copilot agent mode.
+`.vscode/mcp.json` is pre-configured. Open the project in VS Code, enable Copilot agent mode.
 
 Both configs run the same `mcp_server.py` via `uv run --with fastmcp`.
+
+## How It Works
+
+```
+Query → Router (local-led or web-led)
+         │                    │
+         ▼                    ▼
+   Local Retrieval      Web Research
+   (BM25 + embed)      (SearXNG + APIs)
+         │                    │
+         └──────┬─────────────┘
+                ▼
+        Answer Synthesis
+        (structured JSON schema)
+                │
+                ▼
+        Knowledge Loop ──► distill → promote → reindex
+```
+
+1. **Router** classifies queries — definitions go local, fresh topics go web, complex ones mix both
+2. **Retriever** uses BM25 (always) + optional semantic embeddings for hybrid search
+3. **Synthesizer** produces structured answers with claims, inferences, uncertainty, and action items
+4. **Knowledge Loop** saves research as Markdown cards, promotes drafts, and rebuilds the index — the system accumulates knowledge over time
 
 ## Project Structure
 
 ```
-optimizer/
+lore-agent/
 ├── mcp_server.py              # MCP server (Claude Code + VS Code Copilot)
 ├── .mcp.json                  # Claude Code MCP config
 ├── .vscode/mcp.json           # VS Code Copilot MCP config
 ├── docker-compose.yml         # SearXNG for web research
-├── requirements.txt           # Core dependencies
+├── requirements.txt           # Core dependencies (zero external deps)
 ├── schemas/
 │   ├── answer.schema.json     # Structured answer schema
 │   └── evidence.schema.json   # Evidence schema
@@ -66,26 +101,23 @@ optimizer/
 │   ├── synthesize_answer.py   # Answer synthesis (LLM API or --local-answer)
 │   ├── agent.py               # Agent control loop (Router/Researcher/Synthesizer/Curator)
 │   ├── orchestrate_research.py# Query routing and evidence orchestration
-│   ├── retry.py               # Exponential backoff for external APIs
-│   └── ...                    # Supporting scripts
+│   └── retry.py               # Exponential backoff for external APIs
 ├── knowledge/                 # Knowledge cards organized by topic
 │   ├── templates/             # Card templates (definition, method, research-note, etc.)
-│   ├── qpe/                   # Radar QPE domain
-│   ├── markov_chain/          # Markov chain domain
-│   └── ...                    # Add your own domain folders
+│   └── examples/              # Example cards to get started
 ├── indexes/                   # Generated (gitignored)
-└── tests/                     # 78 tests
+└── tests/                     # 74 tests, ~4s
 ```
 
 ## Adding Knowledge
 
 ### Option A: Through MCP (recommended)
 
-Ask your LLM agent to save research:
+Ask your LLM agent:
 
 > "Search for recent advances in [topic], then save the findings."
 
-The agent calls `save_research(query, answer_json)` which writes a knowledge card to `knowledge/<domain>/` and rebuilds the index.
+The agent calls `save_research(query, answer_json)` which writes a knowledge card and rebuilds the index.
 
 ### Option B: Manually
 
@@ -99,21 +131,14 @@ python scripts/local_index.py --output indexes/local/index.json
 
 ```bash
 # Research a topic via SearXNG + academic APIs
-python scripts/research_harness.py "XGBoost for QPE" --depth medium --output /tmp/research.json
+python scripts/research_harness.py "your topic" --depth medium --output /tmp/research.json
 
-# Synthesize and save (requires LLM or --local-answer)
+# Synthesize and save
 python scripts/close_knowledge_loop.py \
-  --query "XGBoost for QPE" \
+  --query "your topic" \
   --research /tmp/research.json \
   --answer /tmp/answer.json
 ```
-
-## Key Design Decisions
-
-- **Zero required external APIs** — BM25 retrieval works offline. SearXNG, embedding models, and LLM APIs are all optional.
-- **Graceful degradation** — Every optional component (SearXNG, embeddings, LLM) falls back silently when unavailable.
-- **Knowledge accumulates** — Every research session can produce a knowledge card that persists and improves future retrieval.
-- **Answer schema enforced** — All answers conform to `schemas/answer.schema.json` with supporting claims, inferences, uncertainty, and action items.
 
 ## Running Tests
 
