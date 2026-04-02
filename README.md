@@ -21,6 +21,8 @@ A **zero-dependency, drop-in knowledge agent** that gives any project local retr
 
 ## Quick Start
 
+### As a standalone project
+
 ```bash
 # 1. Clone and install
 git clone https://github.com/zfy465914233/lore-agent.git
@@ -37,6 +39,23 @@ docker compose up -d
 pip install sentence-transformers
 python scripts/local_index.py --output indexes/local/index.json --build-embedding-index
 ```
+
+### Embed into an existing project
+
+```bash
+# 1. Copy lore-agent into your project
+cp -r lore-agent/ your-project/lore-agent/
+
+# 2. Run the setup script (from your project root)
+cd your-project
+python lore-agent/setup_mcp.py
+```
+
+This automatically:
+- Injects MCP config into `.mcp.json` (Claude Code) and `.vscode/mcp.json` (VS Code Copilot)
+- Adds a `CLAUDE.md` snippet instructing the AI to prioritize Lore tools
+
+After restarting Claude Code or VS Code, the AI will automatically discover and use `query_knowledge`, `save_research`, and `list_knowledge`.
 
 ## MCP Integration
 
