@@ -80,6 +80,8 @@ Lore Agent exposes 3 tools to LLM agents:
 
 Both configs run the same `mcp_server.py` via `fastmcp` (installed with `pip install -r requirements.txt`).
 
+When `setup_mcp.py` generates config for an embedded project, it prefers a real `fastmcp` executable from the active environment over `python -m fastmcp`, because some FastMCP versions do not expose `fastmcp.__main__`.
+
 ## How It Works
 
 ```

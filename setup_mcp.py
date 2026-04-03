@@ -16,6 +16,7 @@ This will:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -29,12 +30,23 @@ def _detect_mcp_command() -> tuple[str, list[str]]:
     """Detect the best way to run the MCP server.
 
     Priority:
-      1. uv run --with fastmcp fastmcp run  (uv available, auto-installs deps)
-      2. python -m fastmcp run              (uses current Python, always works)
+      1. Use the fastmcp executable next to the active Python interpreter
+      2. Use fastmcp from PATH
+      3. uv run --with fastmcp fastmcp run
     """
+    local_fastmcp = Path(sys.executable).with_name("fastmcp")
+    if local_fastmcp.exists() and os.access(local_fastmcp, os.X_OK):
+        return str(local_fastmcp), ["run"]
+
+    if path_fastmcp := shutil.which("fastmcp"):
+        return path_fastmcp, ["run"]
+
     if shutil.which("uv"):
         return "uv", ["run", "--with", "fastmcp", "fastmcp", "run"]
-    return sys.executable, ["-m", "fastmcp", "run"]
+
+    raise RuntimeError(
+        "Could not find a usable fastmcp launcher. Install fastmcp or uv first."
+    )
 
 
 def get_lore_dir() -> Path:
