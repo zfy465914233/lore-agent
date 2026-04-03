@@ -1,8 +1,6 @@
-# Core (zero external deps — BM25 retrieval, knowledge lifecycle, agent pipeline)
+# Core dependencies
 jsonschema>=4.23,<5
-
-# Optional: MCP server for Claude Code / VS Code Copilot
-# fastmcp>=2.0
+fastmcp>=2.0
 
 # Optional: Semantic retrieval with local embedding model
 # sentence-transformers>=3.0

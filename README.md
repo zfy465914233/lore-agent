@@ -13,7 +13,7 @@ A **zero-dependency, drop-in knowledge agent** that gives any project local retr
 | | Lore Agent | Typical RAG Tool |
 |---|---|---|
 | **Setup** | Drop in, `pip install -r requirements.txt`, done | Vector DB + embedding model + config |
-| **External deps** | Zero. BM25 runs offline, everything else is optional | Usually requires Pinecone/Weaviate/Chroma + OpenAI |
+| **External deps** | Minimal. BM25 + MCP server run offline | Usually requires Pinecone/Weaviate/Chroma + OpenAI |
 | **Knowledge lifecycle** | draft → reviewed → trusted → stale → deprecated, with dedup & governance | Add docs, search docs — no lifecycle |
 | **Knowledge loop** | Research → distill → promote → reindex. The system gets smarter over time | One-way: ingest then retrieve |
 | **MCP support** | Claude Code + VS Code Copilot out of the box | Usually one or none |
@@ -78,7 +78,7 @@ Lore Agent exposes 3 tools to LLM agents:
 
 `.vscode/mcp.json` is pre-configured. Open the project in VS Code, enable Copilot agent mode.
 
-Both configs run the same `mcp_server.py` via `uv run --with fastmcp`.
+Both configs run the same `mcp_server.py` via `fastmcp` (installed with `pip install -r requirements.txt`).
 
 ## How It Works
 

@@ -29,7 +29,7 @@ _config_cache: dict | None = None
 
 
 def _find_config_file() -> Path | None:
-    """Walk up from cwd to find .lore.json."""
+    """Find .lore.json — walk up from cwd, then check LORE_ROOT (embedded mode)."""
     current = Path.cwd()
     for _ in range(10):  # max 10 levels up
         candidate = current / ".lore.json"
@@ -39,6 +39,10 @@ def _find_config_file() -> Path | None:
         if parent == current:
             break
         current = parent
+    # Fallback: lore-agent's own directory (embedded mode where config lives inside lore-agent/)
+    lore_config = LORE_ROOT / ".lore.json"
+    if lore_config.exists():
+        return lore_config
     return None
 
 

@@ -29,15 +29,11 @@ def _detect_mcp_command() -> tuple[str, list[str]]:
     """Detect the best way to run the MCP server.
 
     Priority:
-      1. uv run --with fastmcp fastmcp run mcp_server.py  (uv available)
-      2. fastmcp run mcp_server.py                        (fastmcp pip-installed)
-      3. python -m fastmcp run mcp_server.py               (fastmcp in current venv)
+      1. uv run --with fastmcp fastmcp run  (uv available, auto-installs deps)
+      2. python -m fastmcp run              (uses current Python, always works)
     """
     if shutil.which("uv"):
         return "uv", ["run", "--with", "fastmcp", "fastmcp", "run"]
-    if shutil.which("fastmcp"):
-        return "fastmcp", ["run"]
-    # Fallback: use current python with fastmcp as module
     return sys.executable, ["-m", "fastmcp", "run"]
 
 
@@ -107,8 +103,15 @@ def setup_vscode(parent_root: Path, lore_dir: Path) -> None:
 
 
 def setup_claude_md(parent_root: Path, lore_dir: Path) -> None:
-    """Add a CLAUDE.md snippet instructing the AI to prioritize Lore tools."""
+    """Add a CLAUDE.md snippet — only if Claude Code is detected."""
     claude_md_path = parent_root / "CLAUDE.md"
+
+    # Detect Claude Code: .claude/ directory at project root
+    has_claude = (parent_root / ".claude").is_dir()
+    if not has_claude:
+        print("  Skipping CLAUDE.md (Claude Code not detected)")
+        return
+
     snippet = (
         "# Lore Agent\n"
         "\n"
@@ -134,13 +137,12 @@ def setup_claude_md(parent_root: Path, lore_dir: Path) -> None:
 
 
 def setup_lore_config(parent_root: Path, lore_dir: Path) -> None:
-    """Create .lore.json in the parent project pointing knowledge to parent."""
-    config_path = parent_root / ".lore.json"
+    """Create .lore.json inside lore-agent/ with paths relative to lore-agent/."""
+    config_path = lore_dir / ".lore.json"
 
     config = {
-        "knowledge_dir": "./knowledge",
+        "knowledge_dir": "../knowledge",
         "index_path": "./indexes/local/index.json",
-        "lore_dir": f"./{lore_dir.relative_to(parent_root)}",
     }
 
     if config_path.exists():
@@ -151,10 +153,10 @@ def setup_lore_config(parent_root: Path, lore_dir: Path) -> None:
     config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"  Updated {config_path.relative_to(parent_root)}")
 
-    # Create knowledge and indexes directories
+    # Create knowledge/ at parent root, indexes/ inside lore-agent/
     knowledge_dir = parent_root / "knowledge"
     knowledge_dir.mkdir(exist_ok=True)
-    (parent_root / "indexes" / "local").mkdir(parents=True, exist_ok=True)
+    (lore_dir / "indexes" / "local").mkdir(parents=True, exist_ok=True)
 
     # Copy example card if knowledge dir has no cards
     has_cards = any(
