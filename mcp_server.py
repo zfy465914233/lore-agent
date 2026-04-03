@@ -123,32 +123,31 @@ def save_research(query: str, answer_json: str) -> str:
 def list_knowledge(topic: str | None = None) -> str:
     """List all knowledge cards in the local knowledge base.
 
-    Returns card metadata (id, title, topic, confidence, review_status)
-    for browsing and discovery.
+    Returns card metadata (id, title, topic, type) for browsing and discovery.
 
     Args:
         topic: Optional topic filter (e.g. 'qpe', 'markov_chain'). Returns all if omitted.
     """
+    index_path = get_index_path()
+    if not index_path.exists():
+        return json.dumps({"cards": [], "total": 0, "error": "Index not found. Run local_index.py first."})
+
+    try:
+        index_data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return json.dumps({"cards": [], "total": 0, "error": "Failed to read index."})
+
     cards = []
-    for domain_dir in get_knowledge_dir().iterdir():
-        if not domain_dir.is_dir() or domain_dir.name == "templates":
+    for doc in index_data.get("documents", []):
+        if topic and doc.get("topic") != topic:
             continue
-        if topic and domain_dir.name != topic:
-            continue
-        for card_file in domain_dir.glob("*.md"):
-            try:
-                content = card_file.read_text(encoding="utf-8")
-                meta = _parse_frontmatter(content)
-                cards.append({
-                    "id": meta.get("id", card_file.stem),
-                    "title": meta.get("title", ""),
-                    "topic": meta.get("topic", domain_dir.name),
-                    "confidence": meta.get("confidence", ""),
-                    "review_status": meta.get("review_status", ""),
-                    "path": str(card_file.relative_to(ROOT)),
-                })
-            except Exception:
-                cards.append({"id": card_file.stem, "path": str(card_file), "error": "parse failed"})
+        cards.append({
+            "id": doc.get("doc_id", ""),
+            "title": doc.get("title", ""),
+            "topic": doc.get("topic", ""),
+            "type": doc.get("type", ""),
+            "path": doc.get("path", ""),
+        })
 
     return json.dumps({"cards": cards, "total": len(cards)}, ensure_ascii=False, indent=2)
 

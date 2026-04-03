@@ -141,22 +141,13 @@ def setup_lore_config(parent_root: Path, lore_dir: Path) -> None:
     (parent_root / "knowledge").mkdir(exist_ok=True)
     (parent_root / "indexes" / "local").mkdir(parents=True, exist_ok=True)
 
-    # Copy templates if knowledge dir is empty
-    knowledge_dir = parent_root / "knowledge"
-    templates_src = lore_dir / "templates"
-    templates_dst = knowledge_dir / "templates"
-    if templates_src.exists() and not templates_dst.exists():
-        import shutil
-        shutil.copytree(templates_src, templates_dst)
-        print(f"  Copied templates to knowledge/templates/")
-
     # Copy example card if knowledge dir has no cards
     has_cards = any(
         p.is_file() and p.suffix == ".md" and "templates" not in p.parts
         for p in knowledge_dir.rglob("*.md")
     )
     if not has_cards:
-        examples_src = lore_dir / "knowledge" / "examples"
+        examples_src = lore_dir / "tests" / "fixtures"
         examples_dst = knowledge_dir / "examples"
         if examples_src.exists():
             import shutil

@@ -1,6 +1,7 @@
 """Tests for MCP server tool functions (logic only, no MCP transport)."""
 
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -10,10 +11,47 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import lore_config
 from mcp_server import query_knowledge, save_research, list_knowledge
+
+# Force config to always resolve to lore-agent's own directories
+# regardless of cwd, so tests don't leak files into parent projects.
+_TEST_INDEX = ROOT / "indexes" / "local" / "index.json"
+_TEST_KNOWLEDGE = ROOT / "knowledge"
+lore_config._config_cache = {
+    "knowledge_dir": str(_TEST_KNOWLEDGE),
+    "index_path": str(_TEST_INDEX),
+    "lore_dir": str(ROOT),
+}
+
+
+def _build_index() -> None:
+    _TEST_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [sys.executable, str(SCRIPTS / "local_index.py"),
+         "--knowledge-root", str(ROOT / "tests" / "fixtures"),
+         "--output", str(_TEST_INDEX)],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+
+
+def _cleanup_card(card_path_str: str) -> None:
+    card_path = Path(card_path_str)
+    if card_path.exists():
+        card_path.unlink()
+    # Remove empty parent dirs including knowledge root
+    parent = card_path.parent
+    while parent.exists() and parent.is_dir() and not any(parent.iterdir()):
+        parent.rmdir()
+        parent = parent.parent
+    _build_index()
 
 
 class QueryKnowledgeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        _build_index()
+
     def test_query_returns_results(self) -> None:
         result = json.loads(query_knowledge("Markov chain"))
         self.assertIn("results", result)
@@ -29,6 +67,10 @@ class QueryKnowledgeTest(unittest.TestCase):
 
 
 class SaveResearchTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        _build_index()
+
     def test_save_valid_research(self) -> None:
         answer = {
             "answer": "Test answer from MCP",
@@ -43,19 +85,7 @@ class SaveResearchTest(unittest.TestCase):
         result = json.loads(save_research("test mcp save query", json.dumps(answer)))
         self.assertEqual("ok", result["status"])
         self.assertEqual([], result["schema_warnings"])
-
-        # Clean up
-        card_path = Path(result["card_path"])
-        if card_path.exists():
-            card_path.unlink()
-        # Reindex without test card
-        import subprocess
-        subprocess.run(
-            [sys.executable, str(SCRIPTS / "local_index.py"),
-             "--knowledge-root", str(ROOT / "tests" / "fixtures"),
-             "--output", str(ROOT / "indexes" / "local" / "index.json")],
-            capture_output=True, text=True, cwd=ROOT,
-        )
+        _cleanup_card(result["card_path"])
 
     def test_save_invalid_json(self) -> None:
         result = json.loads(save_research("test", "not json at all"))
@@ -65,38 +95,13 @@ class SaveResearchTest(unittest.TestCase):
         result = json.loads(save_research("test", json.dumps({"wrong": True})))
         self.assertEqual("ok", result["status"])
         self.assertGreater(len(result["schema_warnings"]), 0)
-
-        # Clean up
-        card_path = Path(result["card_path"])
-        if card_path.exists():
-            card_path.unlink()
-        import subprocess
-        subprocess.run(
-            [sys.executable, str(SCRIPTS / "local_index.py"),
-             "--knowledge-root", str(ROOT / "tests" / "fixtures"),
-             "--output", str(ROOT / "indexes" / "local" / "index.json")],
-            capture_output=True, text=True, cwd=ROOT,
-        )
+        _cleanup_card(result["card_path"])
 
 
 class ListKnowledgeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        # Copy fixture card to knowledge dir so list_knowledge can find it
-        import shutil
-        cls.fixture = ROOT / "tests" / "fixtures" / "example-markov-chain.md"
-        cls.target_dir = ROOT / "knowledge" / "examples"
-        cls.target_dir.mkdir(parents=True, exist_ok=True)
-        cls.target = cls.target_dir / "example-markov-chain.md"
-        if not cls.target.exists():
-            shutil.copy2(cls.fixture, cls.target)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls.target.exists():
-            cls.target.unlink()
-        if cls.target_dir.exists() and not any(cls.target_dir.iterdir()):
-            cls.target_dir.rmdir()
+        _build_index()
 
     def test_list_all_cards(self) -> None:
         result = json.loads(list_knowledge())
@@ -107,10 +112,10 @@ class ListKnowledgeTest(unittest.TestCase):
             self.assertIn("topic", card)
 
     def test_list_filtered_by_topic(self) -> None:
-        result = json.loads(list_knowledge(topic="qpe"))
+        result = json.loads(list_knowledge(topic="examples"))
         self.assertIn("cards", result)
         for card in result["cards"]:
-            self.assertEqual("qpe", card.get("topic"))
+            self.assertEqual("examples", card.get("topic"))
 
     def test_list_nonexistent_topic_returns_empty(self) -> None:
         result = json.loads(list_knowledge(topic="nonexistent_xyz"))
