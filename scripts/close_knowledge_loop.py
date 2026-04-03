@@ -247,7 +247,9 @@ def reindex(index_output: Path) -> bool:
     """Rebuild the local index."""
     import subprocess
     result = subprocess.run(
-        [sys.executable, str(SCRIPTS / "local_index.py"), "--output", str(index_output)],
+        [sys.executable, str(SCRIPTS / "local_index.py"),
+         "--knowledge-root", str(get_knowledge_dir()),
+         "--output", str(index_output)],
         capture_output=True,
         text=True,
     )

@@ -9,7 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-INDEX_PATH = ROOT / "indexes" / "local" / "index.json"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import lore_config
+
+INDEX_PATH = lore_config.get_index_path()
+KNOWLEDGE_DIR = lore_config.get_knowledge_dir()
 ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
 RESEARCH_NOTE_TEMPLATE = ROOT / "templates" / "research-note.md"
 
@@ -86,7 +92,7 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             self.assertIn("Knowledge card written", result.stderr)
 
             # Verify card exists
-            card_path = ROOT / "knowledge" / "general" / "research-test-loop-closing-query.md"
+            card_path = KNOWLEDGE_DIR / "general" / "research-test-loop-closing-query.md"
             self.assertTrue(card_path.exists(), "Card should be written to knowledge tree")
 
             # Verify it's in the index
@@ -127,7 +133,7 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, msg=result.stderr)
 
-            card_path = ROOT / "knowledge" / "general" / "research-test-schema-validation-query.md"
+            card_path = KNOWLEDGE_DIR / "general" / "research-test-schema-validation-query.md"
             self.assertTrue(card_path.exists())
             content = card_path.read_text()
 
@@ -168,7 +174,7 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             self.assertIn("Missing required field: supporting_claims", result.stderr)
 
             # Clean up
-            card_path = ROOT / "knowledge" / "general" / "research-test-invalid-schema-query.md"
+            card_path = KNOWLEDGE_DIR / "general" / "research-test-invalid-schema-query.md"
             if card_path.exists():
                 card_path.unlink()
             subprocess.run(
