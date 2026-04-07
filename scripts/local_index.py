@@ -1,10 +1,20 @@
-"""Build a minimal JSON index from local knowledge cards."""
+"""Build a minimal JSON index from local knowledge cards.
+
+Supports incremental indexing: if an existing index is found alongside a
+manifest of file modification times, only changed or new cards are
+re-parsed.  Deleted cards are removed from the index automatically.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
+
+from common import parse_frontmatter
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +42,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("indexes/local/embeddings.json"),
         help="Output path for the embedding index.",
     )
+    parser.add_argument(
+        "--full-rebuild",
+        action="store_true",
+        help="Force a full rebuild ignoring any existing manifest.",
+    )
     return parser.parse_args()
 
 
@@ -52,57 +67,8 @@ def parse_card(path: Path) -> dict[str, object]:
 
 
 def split_frontmatter(raw: str) -> tuple[dict[str, object], str]:
-    if not raw.startswith("---\n"):
-        return {}, raw
-
-    parts = raw.split("\n---\n", 1)
-    if len(parts) != 2:
-        return {}, raw
-
-    frontmatter, body = parts
-    metadata = parse_frontmatter(frontmatter.splitlines()[1:])
-    return metadata, body.strip()
-
-
-def parse_frontmatter(lines: list[str]) -> dict[str, object]:
-    data: dict[str, object] = {}
-    current_key: str | None = None
-    current_list: list[str] | None = None
-
-    for line in lines:
-        if not line.strip():
-            continue
-
-        if line.startswith("  - ") and current_key is not None and current_list is not None:
-            current_list.append(line[4:].strip())
-            continue
-
-        if line.startswith("- ") and current_key is not None and current_list is not None:
-            current_list.append(line[2:].strip())
-            continue
-
-        if ":" not in line:
-            continue
-
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if not value:
-            current_key = key
-            current_list = []
-            data[key] = current_list
-            continue
-
-        current_key = None
-        current_list = None
-        data[key] = normalize_scalar(value)
-
-    return data
-
-
-def normalize_scalar(value: str) -> str:
-    return value.strip().strip("'").strip('"')
+    """Split raw markdown into (frontmatter_dict, body) using common parser."""
+    return parse_frontmatter(raw)
 
 
 def build_search_text(metadata: dict[str, object], body: str) -> str:
@@ -132,7 +98,29 @@ def iter_cards(knowledge_root: Path) -> list[Path]:
     )
 
 
+def _manifest_path(index_output: Path) -> Path:
+    return index_output.parent / f"{index_output.stem}.manifest.json"
+
+
+def _load_manifest(index_output: Path) -> dict[str, float]:
+    """Load the manifest mapping relative path -> mtime."""
+    mp = _manifest_path(index_output)
+    if not mp.exists():
+        return {}
+    try:
+        return json.loads(mp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_manifest(manifest: dict[str, float], index_output: Path) -> None:
+    mp = _manifest_path(index_output)
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    mp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_index(knowledge_root: Path) -> dict[str, object]:
+    """Build a full index from scratch."""
     documents = [parse_card(path) for path in iter_cards(knowledge_root)]
     return {
         "knowledge_root": str(knowledge_root.as_posix()),
@@ -140,11 +128,111 @@ def build_index(knowledge_root: Path) -> dict[str, object]:
     }
 
 
+def build_index_incremental(
+    knowledge_root: Path,
+    index_output: Path,
+) -> dict[str, object]:
+    """Build index incrementally, only re-parsing changed cards.
+
+    Falls back to a full rebuild if the existing index is missing or corrupt.
+    """
+    old_manifest = _load_manifest(index_output)
+    if not old_manifest:
+        logger.info("No manifest found, performing full rebuild")
+        payload = build_index(knowledge_root)
+        manifest = _build_manifest(payload, knowledge_root)
+        _save_manifest(manifest, index_output)
+        return payload
+
+    # Load existing index
+    try:
+        existing = json.loads(index_output.read_text(encoding="utf-8"))
+        existing_docs = {doc["path"]: doc for doc in existing.get("documents", [])}
+    except (json.JSONDecodeError, OSError, KeyError):
+        logger.info("Existing index corrupt, performing full rebuild")
+        payload = build_index(knowledge_root)
+        manifest = _build_manifest(payload, knowledge_root)
+        _save_manifest(manifest, index_output)
+        return payload
+
+    card_paths = iter_cards(knowledge_root)
+
+    # Build current manifest: relative path -> mtime
+    current_manifest: dict[str, float] = {}
+    for path in card_paths:
+        rel = str(path.relative_to(knowledge_root).as_posix())
+        current_manifest[rel] = path.stat().st_mtime
+
+    # Determine which cards need re-parsing
+    changed: set[str] = set()
+    for rel, mtime in current_manifest.items():
+        abs_key = str((knowledge_root / rel).as_posix())
+        if old_manifest.get(abs_key) != mtime and old_manifest.get(rel) != mtime:
+            changed.add(abs_key)
+            changed.add(rel)
+
+    # Also add any new cards (not in old manifest)
+    for rel in current_manifest:
+        abs_key = str((knowledge_root / rel).as_posix())
+        if abs_key not in old_manifest and rel not in old_manifest:
+            changed.add(abs_key)
+
+    # Re-parse changed cards
+    new_docs: dict[str, dict] = {}
+    for path in card_paths:
+        abs_path = str(path.as_posix())
+        if abs_path in changed:
+            new_docs[abs_path] = parse_card(path)
+        elif abs_path in existing_docs:
+            new_docs[abs_path] = existing_docs[abs_path]
+        else:
+            new_docs[abs_path] = parse_card(path)
+
+    documents = list(new_docs.values())
+    logger.info(
+        "Incremental index: %d docs total, %d re-parsed",
+        len(documents), len(changed),
+    )
+
+    manifest = {}
+    for path in card_paths:
+        rel = str(path.relative_to(knowledge_root).as_posix())
+        manifest[str(path.as_posix())] = path.stat().st_mtime
+    _save_manifest(manifest, index_output)
+
+    return {
+        "knowledge_root": str(knowledge_root.as_posix()),
+        "documents": documents,
+    }
+
+
+def _build_manifest(payload: dict, knowledge_root: Path) -> dict[str, float]:
+    """Build a manifest from a full index payload."""
+    manifest: dict[str, float] = {}
+    for doc in payload.get("documents", []):
+        path_str = doc.get("path", "")
+        try:
+            p = Path(path_str)
+            if p.exists():
+                manifest[path_str] = p.stat().st_mtime
+        except OSError:
+            pass
+    return manifest
+
+
 def main() -> int:
     args = parse_args()
-    payload = build_index(args.knowledge_root)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    if args.full_rebuild or not args.output.exists():
+        payload = build_index(args.knowledge_root)
+        manifest = _build_manifest(payload, args.knowledge_root)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _save_manifest(manifest, args.output)
+    else:
+        payload = build_index_incremental(args.knowledge_root, args.output)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     if args.build_embedding_index:
         try:
@@ -156,9 +244,9 @@ def main() -> int:
             args.embedding_output.write_text(
                 json.dumps(emb_index, ensure_ascii=False) + "\n", encoding="utf-8"
             )
-            print(f"Embedding index: {valid}/{total} docs embedded → {args.embedding_output}", file=__import__("sys").stderr)
+            logger.info("Embedding index: %d/%d docs embedded → %s", valid, total, args.embedding_output)
         except Exception as exc:
-            print(f"Warning: embedding index build failed ({exc}), skipping", file=__import__("sys").stderr)
+            logger.warning("embedding index build failed (%s), skipping", exc)
 
     return 0
 

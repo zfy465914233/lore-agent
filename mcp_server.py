@@ -69,6 +69,9 @@ def query_knowledge(query: str, limit: int = 5) -> str:
         query: The search query in natural language.
         limit: Maximum number of results to return (default 5).
     """
+    if not isinstance(limit, int) or limit < 1 or limit > 50:
+        return json.dumps({"error": "limit must be an integer between 1 and 50", "results": []})
+
     if not get_index_path().exists():
         return json.dumps({
             "error": "Knowledge index not found. Run local_index.py first.",
@@ -97,6 +100,13 @@ def save_research(query: str, answer_json: str) -> str:
         query: The original research question.
         answer_json: JSON string with the structured answer.
     """
+    # Validate query — reject path traversal characters
+    if not query or not query.strip():
+        return json.dumps({"error": "query must not be empty"})
+    for char in ("..", "/", "\\"):
+        if char in query:
+            return json.dumps({"error": f"query must not contain path separators or traversal sequences"})
+
     try:
         answer_data = json.loads(answer_json)
     except json.JSONDecodeError as e:
@@ -109,7 +119,7 @@ def save_research(query: str, answer_json: str) -> str:
     card_path = build_knowledge_card(query, answer_data, None, get_knowledge_dir())
 
     # Rebuild index
-    reindex_ok = _reindex(get_index_path())
+    reindex_ok = _reindex(get_knowledge_dir(), get_index_path())
 
     return json.dumps({
         "status": "ok",
@@ -128,6 +138,10 @@ def list_knowledge(topic: str | None = None) -> str:
     Args:
         topic: Optional topic filter (e.g. 'qpe', 'markov_chain'). Returns all if omitted.
     """
+    if topic is not None:
+        for char in ("..", "/", "\\"):
+            if char in topic:
+                return json.dumps({"error": "topic must not contain path separators or traversal sequences", "cards": [], "total": 0})
     index_path = get_index_path()
     if not index_path.exists():
         return json.dumps({"cards": [], "total": 0, "error": "Index not found. Run local_index.py first."})
@@ -150,21 +164,6 @@ def list_knowledge(topic: str | None = None) -> str:
         })
 
     return json.dumps({"cards": cards, "total": len(cards)}, ensure_ascii=False, indent=2)
-
-
-def _parse_frontmatter(content: str) -> dict:
-    """Simple YAML frontmatter parser for metadata extraction."""
-    if not content.startswith("---"):
-        return {}
-    end = content.find("---", 3)
-    if end == -1:
-        return {}
-    meta: dict = {}
-    for line in content[3:end].strip().splitlines():
-        if ":" in line and not line.startswith("  "):
-            key, _, val = line.partition(":")
-            meta[key.strip()] = val.strip().strip('"').strip("'")
-    return meta
 
 
 if __name__ == "__main__":

@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 from pathlib import Path
 
 from local_retrieve import retrieve
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,7 +78,11 @@ def build_evidence_pack(query: str, index_path: Path, web_evidence_path: Path | 
     items = normalize_local_items(query, local_payload)
 
     if web_evidence_path is not None:
-        web_payload = json.loads(web_evidence_path.read_text(encoding="utf-8"))
+        try:
+            web_payload = json.loads(web_evidence_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("failed to read web evidence from %s: %s", web_evidence_path, exc)
+            web_payload = {}
         items.extend(normalize_web_items(web_payload))
 
     return {

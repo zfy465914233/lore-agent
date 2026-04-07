@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,7 +30,10 @@ ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
 # Import config helpers
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+from common import safe_slug
 from lore_config import get_knowledge_dir, get_index_path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_KNOWLEDGE_ROOT = get_knowledge_dir()
 DEFAULT_INDEX = get_index_path()
@@ -61,10 +64,6 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_INDEX,
     )
     return parser.parse_args()
-
-
-def slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "research-note"
 
 
 def infer_domain(query: str) -> str:
@@ -142,7 +141,7 @@ def build_knowledge_card(
 ) -> Path:
     """Build a knowledge card from research evidence and structured answer."""
     domain = infer_domain(query)
-    slug = slugify(query)
+    slug = safe_slug(query)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     source_urls = collect_source_urls(research_data)
 
@@ -268,19 +267,19 @@ def main() -> int:
     # Step 0: Validate answer against schema
     schema_warnings = validate_answer_schema(answer_data)
     for w in schema_warnings:
-        print(f"Schema warning: {w}", file=sys.stderr)
+        logger.warning("Schema warning: %s", w)
 
     # Step 1: Build knowledge card
     card_path = build_knowledge_card(
         args.query, answer_data, research_data, args.knowledge_root
     )
-    print(f"Knowledge card written: {card_path}", file=sys.stderr)
+    logger.info("Knowledge card written: %s", card_path)
 
     # Step 2: Rebuild index
     if reindex(args.knowledge_root, args.index_output):
-        print(f"Index rebuilt: {args.index_output}", file=sys.stderr)
+        logger.info("Index rebuilt: %s", args.index_output)
     else:
-        print("Warning: index rebuild failed", file=sys.stderr)
+        logger.warning("index rebuild failed")
 
     # Step 3: Verify retrievability
     import subprocess
@@ -292,17 +291,19 @@ def main() -> int:
     if verify.returncode == 0:
         results = json.loads(verify.stdout)
         found = any(
-            f"research-{slugify(args.query)}" in r.get("doc_id", "")
+            f"research-{safe_slug(args.query)}" in r.get("doc_id", "")
             for r in results.get("results", [])
         )
         status = "verified retrievable" if found else "written but not in top results"
-        print(f"Verification: {status}", file=sys.stderr)
+        logger.info("Verification: %s", status)
     else:
-        print("Verification: could not check retrievability", file=sys.stderr)
+        logger.info("Verification: could not check retrievability")
 
-    print(f"\nDone. Knowledge loop closed for: {args.query}", file=sys.stderr)
+    logger.info("Done. Knowledge loop closed for: %s", args.query)
     return 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr,
+                        format="%(levelname)s: %(message)s")
     raise SystemExit(main())

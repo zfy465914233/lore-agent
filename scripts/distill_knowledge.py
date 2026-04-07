@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
+
+from common import safe_slug
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,11 +26,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def slugify(text: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return normalized or "distilled-note"
-
-
 def build_markdown(payload: dict[str, object]) -> str:
     query = str(payload.get("query", "")).strip()
     route = str(payload.get("route", "")).strip()
@@ -40,7 +36,7 @@ def build_markdown(payload: dict[str, object]) -> str:
 
     lines = [
         "---",
-        f"id: distilled-{slugify(query)}",
+        f"id: distilled-{safe_slug(query)}",
         f"title: Distilled Note - {query}",
         "type: distilled_note",
         "topic: research_distillation",

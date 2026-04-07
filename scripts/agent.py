@@ -23,15 +23,19 @@ Usage:
 from __future__ import annotations
 
 import json
-import subprocess
+import logging
 import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from exceptions import LoreError, ResearchError, SynthesisError
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 DEFAULT_INDEX = ROOT / "indexes" / "local" / "index.json"
+
+logger = logging.getLogger(__name__)
 
 
 # ── State machine ──────────────────────────────────────────────────
@@ -42,10 +46,6 @@ class AgentState(str, Enum):
     SYNTHESIZE = "synthesize"
     CURATE = "curate"
     DONE = "done"
-
-
-class AgentError(Exception):
-    pass
 
 
 # ── Router ─────────────────────────────────────────────────────────
@@ -61,21 +61,25 @@ class Router:
     """
 
     def classify(self, query: str, index_path: Path = DEFAULT_INDEX) -> str:
-        """Classify a query into a route type."""
-        result = subprocess.run(
-            [
-                sys.executable, str(SCRIPTS / "orchestrate_research.py"),
-                query, "--mode", "auto",
-                "--index", str(index_path),
-            ],
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
-        )
-        if result.returncode != 0:
-            raise AgentError(f"Router failed: {result.stderr}")
-        payload = json.loads(result.stdout)
-        return payload.get("route", "mixed")
+        """Classify a query into a route type.
+
+        Uses in-process classification from orchestrate_research module.
+        Falls back to subprocess if import fails (e.g. when scripts/ not on sys.path).
+        """
+        try:
+            from orchestrate_research import classify_route
+            return classify_route(query, index_path)
+        except ImportError:
+            logger.debug("Falling back to subprocess for route classification")
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "orchestrate_research.py"),
+                 query, "--mode", "auto", "--index", str(index_path)],
+                capture_output=True, text=True, cwd=SCRIPTS,
+            )
+            if result.returncode != 0:
+                raise ResearchError(f"Router failed: {result.stderr}")
+            return json.loads(result.stdout).get("route", "mixed")
 
     def should_research_web(self, route: str) -> bool:
         return route in {"web-led", "mixed"}
@@ -102,22 +106,48 @@ class Researcher:
         self.research_script = research_script or SCRIPTS / "research_harness.py"
 
     def gather(self, query: str, route: str) -> dict[str, Any]:
-        """Gather evidence and build answer context."""
-        args = [
-            query,
-            "--mode", route,
-            "--index", str(self.index_path),
-            "--research-script", str(self.research_script),
-        ]
-        result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "build_answer_context.py")] + args,
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
-        )
-        if result.returncode != 0:
-            raise AgentError(f"Researcher failed: {result.stderr}")
-        return json.loads(result.stdout)
+        """Gather evidence and build answer context.
+
+        Uses in-process calls when possible, subprocess fallback otherwise.
+        """
+        try:
+            from orchestrate_research import classify_route, build_decision, generate_web_evidence
+            from build_evidence_pack import build_evidence_pack
+            from build_answer_context import build_answer_context
+            import tempfile
+
+            warnings: list[str] = []
+            generated_web_path: Path | None = None
+
+            if route in {"web-led", "mixed"}:
+                generated_web_path, warning = generate_web_evidence(query, self.research_script)
+                if warning:
+                    warnings.append(warning)
+
+            include_web = generated_web_path
+            evidence_pack = build_evidence_pack(query, self.index_path, include_web, 5)
+            _ = build_decision(route, has_web_evidence=include_web is not None)
+            payload = build_answer_context(query, route, evidence_pack, warnings)
+
+            if generated_web_path is not None:
+                generated_web_path.unlink(missing_ok=True)
+
+            return payload
+        except ImportError:
+            logger.debug("Falling back to subprocess for research")
+            import subprocess
+            args = [
+                query, "--mode", route,
+                "--index", str(self.index_path),
+                "--research-script", str(self.research_script),
+            ]
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "build_answer_context.py")] + args,
+                capture_output=True, text=True, cwd=SCRIPTS,
+            )
+            if result.returncode != 0:
+                raise ResearchError(f"Researcher failed: {result.stderr}")
+            return json.loads(result.stdout)
 
     def is_evidence_sufficient(self, answer_context: dict[str, Any]) -> tuple[bool, str]:
         """Check if the gathered evidence is sufficient for synthesis.
@@ -130,7 +160,6 @@ class Researcher:
         if not direct:
             return False, "No direct evidence found."
 
-        # Check if all evidence is weak
         if len(direct) == 0 and any("no direct evidence" in n.lower() for n in uncertainty):
             return False, "Evidence is too weak for confident synthesis."
 
@@ -146,37 +175,58 @@ class Synthesizer:
         self.model = model
 
     def render_prompt(self, answer_context: dict[str, Any]) -> dict[str, Any]:
-        """Render answer context into a model-facing prompt bundle."""
-        ctx_json = json.dumps(answer_context, ensure_ascii=False)
-        result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "render_answer_bundle.py"), "--answer-context-json", "-"],
-            input=ctx_json,
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
-        )
-        if result.returncode != 0:
-            raise AgentError(f"Synthesizer render failed: {result.stderr}")
-        return json.loads(result.stdout)
+        """Render answer context into a model-facing prompt bundle.
+
+        Uses in-process call when possible, subprocess fallback otherwise.
+        """
+        try:
+            from render_answer_bundle import render_user_prompt, SYSTEM_PROMPT
+            user_prompt = render_user_prompt(answer_context)
+            return {
+                "system_prompt": SYSTEM_PROMPT,
+                "user_prompt": user_prompt,
+                "metadata": {
+                    "query": answer_context.get("query", ""),
+                    "route": answer_context.get("route", ""),
+                },
+                "citations": answer_context.get("citations", []),
+            }
+        except ImportError:
+            logger.debug("Falling back to subprocess for prompt rendering")
+            import subprocess
+            ctx_json = json.dumps(answer_context, ensure_ascii=False)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "render_answer_bundle.py"), "--answer-context-json", "-"],
+                input=ctx_json, capture_output=True, text=True, cwd=SCRIPTS,
+            )
+            if result.returncode != 0:
+                raise SynthesisError(f"Synthesizer render failed: {result.stderr}")
+            return json.loads(result.stdout)
 
     def synthesize(self, prompt_bundle: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
-        """Call the LLM to generate a structured answer."""
-        args = ["--prompt-bundle", "-"]
-        if self.model:
-            args.extend(["--model", self.model])
-        if dry_run:
-            args.append("--dry-run")
+        """Call the LLM to generate a structured answer.
 
-        result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "synthesize_answer.py")] + args,
-            input=json.dumps(prompt_bundle, ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
-        )
-        if result.returncode != 0:
-            raise AgentError(f"Synthesizer failed: {result.stderr}")
-        return json.loads(result.stdout)
+        Uses in-process call when possible, subprocess fallback otherwise.
+        """
+        try:
+            from synthesize_answer import synthesize as _synthesize
+            return _synthesize(prompt_bundle, self.model or "gpt-4o-mini", dry_run=dry_run)
+        except ImportError:
+            logger.debug("Falling back to subprocess for synthesis")
+            import subprocess
+            args = ["--prompt-bundle", "-"]
+            if self.model:
+                args.extend(["--model", self.model])
+            if dry_run:
+                args.append("--dry-run")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "synthesize_answer.py")] + args,
+                input=json.dumps(prompt_bundle, ensure_ascii=False),
+                capture_output=True, text=True, cwd=SCRIPTS,
+            )
+            if result.returncode != 0:
+                raise SynthesisError(f"Synthesizer failed: {result.stderr}")
+            return json.loads(result.stdout)
 
 
 # ── Curator ────────────────────────────────────────────────────────
@@ -194,30 +244,66 @@ class Curator:
         if not answer_context:
             return None
 
-        result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "distill_knowledge.py"), "-"],
-            input=json.dumps(answer_context, ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
-        )
-        if result.returncode != 0:
+        try:
+            from distill_knowledge import build_markdown
+            markdown = build_markdown(answer_context)
+            return {"markdown": markdown, "status": "draft"}
+        except ImportError:
+            logger.warning("distill_knowledge module not importable, skipping distillation")
             return None
-        return json.loads(result.stdout)
 
     def promote(self, draft_path: Path, knowledge_root: Path) -> bool:
         """Promote a draft card into the knowledge tree."""
+        import subprocess
         result = subprocess.run(
             [
                 sys.executable, str(SCRIPTS / "promote_draft.py"),
                 str(draft_path),
                 "--knowledge-root", str(knowledge_root),
             ],
-            capture_output=True,
-            text=True,
-            cwd=SCRIPTS,
+            capture_output=True, text=True, cwd=SCRIPTS,
         )
         return result.returncode == 0
+
+
+# ── Query refinement ──────────────────────────────────────────────────
+
+def refine_query(
+    original_query: str,
+    reason: str,
+    answer_context: dict[str, Any],
+) -> str:
+    """Generate a refined query when evidence is insufficient.
+
+    Uses uncertainty notes to identify gaps and constructs a broader query.
+    """
+    uncertainty = answer_context.get("uncertainty_notes", [])
+    direct = answer_context.get("direct_support", [])
+
+    # Extract key terms from existing evidence titles
+    evidence_terms: set[str] = set()
+    for item in direct:
+        title = str(item.get("support", "") or item.get("title", ""))
+        for word in title.split():
+            if len(word) > 4:
+                evidence_terms.add(word.lower())
+
+    # Build refined query by appending context from uncertainty
+    parts = [original_query]
+    for note in uncertainty[:2]:
+        clean = note.rstrip(".")
+        if clean and clean not in parts:
+            parts.append(clean)
+
+    # Add evidence terms to widen the search
+    if evidence_terms:
+        extra = " ".join(sorted(evidence_terms)[:3])
+        parts.append(extra)
+
+    refined = " ".join(parts)
+    if len(refined) > 200:
+        refined = refined[:200]
+    return refined
 
 
 # ── Agent ──────────────────────────────────────────────────────────
@@ -275,9 +361,14 @@ class DomainAgent:
 
                 if not sufficient and retries < self.max_retries:
                     retries += 1
+                    refined = refine_query(query, reason, answer_context)
+                    logger.info(
+                        "Evidence insufficient (%s), retry %d/%d with refined query: %s",
+                        reason, retries, self.max_retries, refined,
+                    )
                     transitions[-1]["to"] = f"research_retry_{retries}"
-                    # For now, just proceed — future: refine query
-                    state = AgentState.SYNTHESIZE
+                    query = refined  # update query for next loop iteration
+                    state = AgentState.RESEARCH  # loop back to re-check
                 else:
                     state = AgentState.SYNTHESIZE
                     transitions[-1]["to"] = state.value

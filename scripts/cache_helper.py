@@ -7,14 +7,20 @@ Cache directory resolution order:
   1. LORE_CACHE_DIR environment variable
   2. <project_root>/.cache/
   3. /tmp/lore_cache/ (fallback)
+
+Supports LRU eviction: when the cache exceeds MAX_ENTRIES, the oldest
+entries are pruned automatically on the next ``put()`` call.
 """
 
 import hashlib
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_cache_dir() -> Path:
@@ -30,6 +36,7 @@ def _resolve_cache_dir() -> Path:
 
 CACHE_DIR = _resolve_cache_dir()
 DEFAULT_TTL = 86400  # 24 hours
+MAX_ENTRIES = int(os.environ.get("LORE_CACHE_MAX_ENTRIES", "500"))
 
 
 def _key(url: str) -> str:
@@ -43,7 +50,10 @@ def get(url: str, ttl: int = DEFAULT_TTL) -> Optional[str]:
     content_path = CACHE_DIR / f"{_key(url)}.md"
     if not meta_path.exists() or not content_path.exists():
         return None
-    meta = json.loads(meta_path.read_text())
+    try:
+        meta = json.loads(meta_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None  # corrupted cache entry
     if time.time() - meta.get("ts", 0) > ttl:
         return None  # expired
     return content_path.read_text()
@@ -52,6 +62,7 @@ def get(url: str, ttl: int = DEFAULT_TTL) -> Optional[str]:
 def put(url: str, markdown: str) -> Path:
     """Store *markdown* for *url* and return the content path."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _evict_if_needed()
     k = _key(url)
     meta_path = CACHE_DIR / f"{k}.meta.json"
     content_path = CACHE_DIR / f"{k}.md"
@@ -82,11 +93,46 @@ def clear_all() -> int:
     return count
 
 
+def _evict_if_needed() -> None:
+    """Prune oldest entries when cache exceeds MAX_ENTRIES."""
+    if not CACHE_DIR.exists():
+        return
+    meta_files = sorted(
+        CACHE_DIR.glob("*.meta.json"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    excess = len(meta_files) - MAX_ENTRIES
+    if excess <= 0:
+        return
+    # Remove the oldest 10% beyond the limit (amortize eviction cost)
+    to_remove = max(excess, len(meta_files) // 10)
+    for meta_path in meta_files[:to_remove]:
+        k = meta_path.stem.replace(".meta", "")
+        meta_path.unlink(missing_ok=True)
+        (CACHE_DIR / f"{k}.md").unlink(missing_ok=True)
+    logger.debug("Cache eviction: removed %d entries (limit=%d)", to_remove, MAX_ENTRIES)
+
+
+def cache_stats() -> dict[str, int]:
+    """Return cache statistics: entry count and total size in bytes."""
+    if not CACHE_DIR.exists():
+        return {"entries": 0, "bytes": 0}
+    entries = 0
+    total_bytes = 0
+    for p in CACHE_DIR.iterdir():
+        if p.is_file():
+            entries += 1
+            total_bytes += p.stat().st_size
+    return {"entries": entries // 2, "bytes": total_bytes}
+
+
 if __name__ == "__main__":
     # Quick self-test
     test_url = "https://example.com/test"
     put(test_url, "# Hello\nCached content.")
     assert get(test_url) is not None, "cache miss after put"
+    stats = cache_stats()
+    assert stats["entries"] >= 1, "cache stats should report at least 1 entry"
     invalidate(test_url)
     assert get(test_url) is None, "cache hit after invalidate"
     print("cache_helper: self-test passed")

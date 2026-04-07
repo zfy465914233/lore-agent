@@ -41,6 +41,32 @@
       "format": "date-time",
       "description": "Timestamp when this evidence was retrieved."
     },
+    "provenance": {
+      "type": "object",
+      "description": "Optional provenance metadata describing where the evidence came from.",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Search or retrieval provider that supplied the candidate."
+        },
+        "query": {
+          "type": "string",
+          "description": "Query used to retrieve the candidate."
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the provenance-aware candidate was retrieved."
+        },
+        "url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "URL associated with the provenance record."
+        }
+      },
+      "required": ["provider", "query", "retrieved_at", "url"],
+      "additionalProperties": false
+    },
     "license": {
       "type": ["string", "null"],
       "description": "License of the project or content, if applicable."

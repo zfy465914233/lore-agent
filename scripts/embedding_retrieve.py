@@ -19,9 +19,9 @@ Configuration (environment variables):
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
-import sys
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -38,6 +38,8 @@ except ImportError:
 
 _DEFAULT_LOCAL_MODEL = "all-MiniLM-L6-v2"
 _DEFAULT_API_MODEL = "text-embedding-3-small"
+
+logger = logging.getLogger(__name__)
 
 
 def _get_backend() -> str:
@@ -95,7 +97,8 @@ def _embed_api(texts: list[str], model: str | None = None) -> list[list[float]]:
     try:
         with urlopen(req, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, OSError):
+    except (HTTPError, URLError, OSError) as exc:
+        logger.warning("embedding API call failed: %s", exc)
         return []
 
     embeddings = []
@@ -225,14 +228,14 @@ def main() -> int:
         payload = json.loads(args.index.read_text(encoding="utf-8"))
         documents = payload.get("documents", [])
         if not documents:
-            print("No documents found in index.", file=sys.stderr)
+            logger.info("No documents found in index.")
             return 1
 
         emb_index = build_embedding_index(documents)
         valid = sum(1 for e in emb_index["embeddings"] if e)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(emb_index, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"Embedded {valid}/{len(documents)} documents → {args.output}", file=sys.stderr)
+        logger.info("Embedded %d/%d documents → %s", valid, len(documents), args.output)
         return 0
 
     if args.command == "search":

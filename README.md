@@ -85,25 +85,49 @@ When `setup_mcp.py` generates config for an embedded project, it prefers a real 
 ## How It Works
 
 ```
-Query → Router (local-led or web-led)
+Query → Router (local-led / web-led / mixed / context-led)
          │                    │
          ▼                    ▼
    Local Retrieval      Web Research
-   (BM25 + embed)      (SearXNG + APIs)
+   (BM25 + embed)      (SearXNG + APIs, concurrent fetch)
          │                    │
          └──────┬─────────────┘
                 ▼
+        Evidence Sufficiency Check ── insufficient? ──► refine query, retry
+                │ sufficient
+                ▼
         Answer Synthesis
-        (structured JSON schema)
+        (structured JSON, claim-evidence ID validation)
                 │
                 ▼
-        Knowledge Loop ──► distill → promote → reindex
+        Knowledge Loop ──► distill → promote → incremental reindex
 ```
 
-1. **Router** classifies queries — definitions go local, fresh topics go web, complex ones mix both
-2. **Retriever** uses BM25 (always) + optional semantic embeddings for hybrid search
-3. **Synthesizer** produces structured answers with claims, inferences, uncertainty, and action items
-4. **Knowledge Loop** saves research as Markdown cards, promotes drafts, and rebuilds the index — the system accumulates knowledge over time
+1. **Router** classifies queries — definitions go local, fresh topics go web, complex ones mix both, code/debug goes context-led
+2. **Researcher** gathers evidence with multi-query expansion (depth-aware), concurrent URL fetching, and BM25 + optional semantic embeddings for hybrid search
+3. **Synthesizer** produces structured answers with claims, inferences, uncertainty, and action items. Claims are validated against actual evidence IDs
+4. **Knowledge Loop** saves research as Markdown cards, promotes drafts, and incrementally rebuilds the index — the system accumulates knowledge over time
+5. **Retry** — if evidence is insufficient, the agent refines the query and loops back (configurable `max_retries`)
+
+## Search Boundary
+
+Lore Agent treats search as a two-layer system:
+
+- **Lore-internal programmable providers** handle sources Lore can call directly, such as `SearXNG`, `OpenAlex`, and `Semantic Scholar`.
+- **Host-provided search** stays outside Lore. A main agent can launch a host-side search subagent, collect results, and pass them into Lore as an `ExternalCandidateBatch`.
+
+Lore does **not** assume Claude Code WebSearch or VS Code Copilot Search is callable from inside `research_harness.py`. Those results should be injected from the host layer, then merged with Lore's own provider output inside the shared evidence pipeline.
+
+```text
+Host Agent
+  ├─ query_knowledge
+  ├─ run host search in subagent
+  ├─ emit ExternalCandidateBatch
+  └─ call Lore pipeline
+         ├─ internal providers
+         ├─ merge + dedupe
+         └─ normalize to evidence
+```
 
 ## Project Structure
 
@@ -124,14 +148,21 @@ lore-agent/
 │   ├── local_retrieve.py      # Hybrid retrieval (BM25 + embedding)
 │   ├── bm25.py                # Pure Python BM25 implementation
 │   ├── research_harness.py    # Web research (SearXNG + OpenAlex + Semantic Scholar)
+│   ├── search_pipeline.py     # Merge/dedupe pipeline for internal + external candidates
+│   ├── inputs/                # ExternalCandidateBatch input contract
+│   ├── normalizers/           # Candidate -> evidence normalization
+│   ├── search_providers/      # Lore-internal programmable search providers
 │   ├── close_knowledge_loop.py# Save research → knowledge card → reindex
 │   ├── synthesize_answer.py   # Answer synthesis (LLM API or --local-answer)
-│   ├── agent.py               # Agent control loop
+│   ├── agent.py               # Agent state machine (Router → Researcher → Synthesizer → Curator)
 │   ├── orchestrate_research.py# Query routing and evidence orchestration
+│   ├── exceptions.py          # Unified exception hierarchy
+│   ├── common.py              # Shared utilities (frontmatter, slug, JSON, dates)
+│   ├── cache_helper.py        # URL cache with TTL + LRU eviction
 │   └── retry.py               # Exponential backoff for external APIs
 ├── knowledge/                 # Knowledge cards (templates + examples)
 ├── indexes/                   # Generated (gitignored)
-└── tests/                     # 74 tests, ~4s
+└── tests/                     # 152 tests, ~5s
 ```
 
 ### Embedded mode (after `setup_mcp.py`)
@@ -184,7 +215,7 @@ python scripts/close_knowledge_loop.py \
 ## Running Tests
 
 ```bash
-python -m pytest tests/ -v    # 74 tests, ~4s
+python -m pytest tests/ -v    # 152 tests, ~5s
 ```
 
 The close-loop tests use a temporary knowledge tree and temporary index output, so they do not rewrite the active project index even in embedded mode.

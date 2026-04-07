@@ -22,6 +22,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from common import parse_frontmatter as _parse_frontmatter
+
 
 # ── Lifecycle states ───────────────────────────────────────────────
 
@@ -67,40 +69,11 @@ class CardIssue:
 
 
 def parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
-    """Parse YAML-like frontmatter from a markdown string."""
-    if not raw.startswith("---\n"):
-        return {}, raw
+    """Parse YAML-like frontmatter from a markdown string.
 
-    parts = raw.split("\n---\n", 1)
-    if len(parts) != 2:
-        return {}, raw
-
-    lines = parts[0].splitlines()[1:]  # skip opening ---
-    metadata: dict[str, Any] = {}
-    current_key: str | None = None
-    current_list: list[str] | None = None
-
-    for line in lines:
-        if not line.strip():
-            continue
-        if line.startswith("  - ") and current_key is not None and current_list is not None:
-            current_list.append(line[4:].strip())
-            continue
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip().strip("'\"")
-        if not value:
-            current_key = key
-            current_list = []
-            metadata[key] = current_list
-        else:
-            current_key = None
-            current_list = None
-            metadata[key] = value
-
-    return metadata, parts[1].strip()
+    Delegates to common.parse_frontmatter for the implementation.
+    """
+    return _parse_frontmatter(raw)
 
 
 def validate_card(metadata: dict[str, Any]) -> list[CardIssue]:

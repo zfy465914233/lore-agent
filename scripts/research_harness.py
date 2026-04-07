@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
-import sys
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import unescape
 from html.parser import HTMLParser
@@ -24,8 +24,13 @@ from urllib.request import Request, urlopen
 
 from cache_helper import get as cache_get
 from cache_helper import put as cache_put
+from common import now_iso
 from retry import retry_with_backoff
+from search_pipeline import run_search_pipeline
+from search_providers.base import SearchCandidate, SearchProvider
+from search_providers.self_hosted_provider import SelfHostedProvider
 
+logger = logging.getLogger(__name__)
 
 SEARXNG_BASE_URL = os.environ.get("SEARXNG_BASE_URL", "http://localhost:8080")
 MAX_FETCH_CHARS = 12000
@@ -87,15 +92,6 @@ class TextExtractor(HTMLParser):
         return re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]+", " ", raw)).strip()
 
 
-@dataclass
-class SearchCandidate:
-    query: str
-    url: str
-    title: str
-    snippet: str
-    published_at: Optional[str]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run a local evidence-first discovery workflow against SearXNG.",
@@ -123,6 +119,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pretty-print JSON output",
     )
+    parser.add_argument(
+        "--external-candidates",
+        type=Path,
+        help="Optional path to a host-provided ExternalCandidateBatch JSON file.",
+    )
     return parser.parse_args()
 
 
@@ -132,9 +133,10 @@ def main() -> int:
     schema = load_schema(root / "schemas" / "evidence.schema.json")
 
     try:
-        evidence = run_discovery(args.query, args.depth, args.limit)
+        external_batch = load_external_candidates(args.external_candidates)
+        evidence = run_discovery(args.query, args.depth, args.limit, external_batch=external_batch)
     except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
+        logger.error("%s", exc)
         return 1
 
     validation_errors = validate_evidence_items(evidence, schema)
@@ -159,21 +161,39 @@ def main() -> int:
     return 0 if not validation_errors else 2
 
 
-def run_discovery(query: str, depth: str, limit: Optional[int]) -> list[dict[str, Any]]:
-    queries = formulate_queries(query, depth)
+def run_discovery(
+    query: str,
+    depth: str,
+    limit: Optional[int],
+    provider: SearchProvider | None = None,
+    external_batch: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     default_limit = {"quick": 3, "medium": 6, "deep": 10}[depth]
     max_items = limit or default_limit
+    prov = provider or SelfHostedProvider()
 
-    candidates = collect_candidates(queries)
-    if not candidates:
-        raise RuntimeError(
-            "No search results returned from SearXNG. Start the local backend with 'docker compose up -d searxng' in the optimizer directory and retry."
+    # Expand queries based on depth for broader recall
+    query_variants = formulate_queries(query, depth)
+    seen_urls: set[str] = set()
+    merged_evidence: list[dict[str, Any]] = []
+
+    for variant in query_variants:
+        payload = run_search_pipeline(
+            query=variant,
+            providers=[prov],
+            external_batch=external_batch if variant == query_variants[0] else None,
         )
+        for item in payload["evidence"]:
+            url = item.get("url", "")
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
+            merged_evidence.append(item)
 
-    evidence: list[dict[str, Any]] = []
-    for candidate in candidates[:max_items]:
-        evidence.append(build_evidence(query, candidate))
-    return evidence
+    if not merged_evidence:
+        raise RuntimeError("No search results returned from configured provider(s).")
+    return merged_evidence[:max_items]
 
 
 def formulate_queries(query: str, depth: str) -> list[str]:
@@ -201,125 +221,17 @@ def formulate_queries(query: str, depth: str) -> list[str]:
     return ordered
 
 
-def collect_candidates(queries: list[str]) -> list[SearchCandidate]:
+def collect_candidates(queries: list[str], provider: SearchProvider) -> list[SearchCandidate]:
     seen_urls: set[str] = set()
     candidates: list[SearchCandidate] = []
     for query in queries:
-        raw_items = []
-        try:
-            raw_items.extend(search_searxng(query))
-        except RuntimeError:
-            pass  # Ignore failing SearXNG if it happens, academic APIs might still hit
-
-        raw_items.extend(search_openalex(query))
-        raw_items.extend(search_semanticscholar(query))
-
-        for item in raw_items:
-            url = item.get("url") or item.get("link")
-            if not url or url in seen_urls:
+        result = provider.search(query)
+        for candidate in result.candidates:
+            if candidate.url in seen_urls:
                 continue
-            seen_urls.add(url)
-            candidates.append(
-                SearchCandidate(
-                    query=query,
-                    url=url,
-                    title=(item.get("title") or url).strip(),
-                    snippet=(item.get("content") or item.get("snippet") or "").strip(),
-                    published_at=normalize_date(item.get("publishedDate") or item.get("published_date")),
-                )
-            )
+            seen_urls.add(candidate.url)
+            candidates.append(candidate)
     return candidates
-
-
-def search_searxng(query: str) -> list[dict[str, Any]]:
-    url = f"{SEARXNG_BASE_URL.rstrip('/')}/search?q={quote_plus(query)}&format=json"
-    request = Request(
-        url,
-        headers={
-            "User-Agent": "lore-research/0.1",
-            "X-Forwarded-For": "127.0.0.1",
-        }
-    )
-
-    def _do_search() -> list[dict[str, Any]]:
-        with urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        return payload.get("results", [])
-
-    try:
-        return retry_with_backoff(
-            _do_search,
-            max_retries=3,
-            base_delay=1.0,
-            retry_on=(HTTPError, URLError, OSError),
-        )
-    except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(
-            f"SearXNG request failed for query '{query}': {exc}. "
-            "If the container is not running, start it with 'docker compose up -d searxng' in the optimizer directory."
-        ) from exc
-
-
-def search_openalex(query: str) -> list[dict[str, Any]]:
-    url = f"https://api.openalex.org/works?search={quote_plus(query)}"
-    request = Request(
-        url,
-        headers={"User-Agent": "lore-research/0.1 (mailto:lore@example.com)"}
-    )
-
-    def _do_search() -> list[dict[str, Any]]:
-        with urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        results = []
-        for item in payload.get("results", [])[:5]:
-            results.append({
-                "url": item.get("doi") or item.get("id"),
-                "title": item.get("title", ""),
-                "content": "",
-                "publishedDate": item.get("publication_date", "")
-            })
-        return results
-
-    try:
-        return retry_with_backoff(
-            _do_search,
-            max_retries=2,
-            base_delay=2.0,
-            retry_on=(HTTPError, URLError, OSError),
-        )
-    except (HTTPError, URLError, OSError, json.JSONDecodeError):
-        return []
-
-
-def search_semanticscholar(query: str) -> list[dict[str, Any]]:
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={quote_plus(query)}&limit=5&fields=title,url,abstract,year"
-    request = Request(
-        url,
-        headers={"User-Agent": "lore-research/0.1"}
-    )
-
-    def _do_search() -> list[dict[str, Any]]:
-        with urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        results = []
-        for item in payload.get("data", []):
-            results.append({
-                "url": item.get("url", ""),
-                "title": item.get("title", ""),
-                "content": item.get("abstract", ""),
-                "publishedDate": f"{item.get('year')}-01-01" if item.get("year") else ""
-            })
-        return results
-
-    try:
-        return retry_with_backoff(
-            _do_search,
-            max_retries=3,
-            base_delay=2.0,
-            retry_on=(HTTPError, URLError, OSError),
-        )
-    except (HTTPError, URLError, OSError, json.JSONDecodeError):
-        return []
 
 
 def build_evidence(user_query: str, candidate: SearchCandidate) -> dict[str, Any]:
@@ -528,6 +440,12 @@ def load_schema(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_external_candidates(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def validate_evidence_items(evidence: list[dict[str, Any]], schema: dict[str, Any]) -> list[str]:
     try:
         from jsonschema import Draft7Validator
@@ -573,28 +491,33 @@ def summarize_run(evidence: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def normalize_date(value: Any) -> Optional[str]:
-    if not value:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    text = text.replace("/", "-")
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-        try:
-            parsed = datetime.strptime(text[:19], fmt)
-            return (
-                parsed.date().isoformat()
-                if "T" not in fmt and " " not in fmt
-                else parsed.replace(tzinfo=timezone.utc).isoformat()
-            )
-        except ValueError:
-            continue
-    return text
+def fetch_batch_concurrent(
+    urls: list[str],
+    max_workers: int = 4,
+) -> dict[str, dict[str, str]]:
+    """Fetch multiple URLs concurrently with thread pooling.
 
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    Returns a dict mapping each URL to its fetch_content result.
+    Failed fetches are included with retrieval_status="failed".
+    """
+    results: dict[str, dict[str, str]] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_url = {
+            executor.submit(fetch_content, url): url
+            for url in urls
+        }
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                results[url] = future.result()
+            except Exception as exc:
+                results[url] = {
+                    "title": "",
+                    "content_md": "",
+                    "retrieval_status": "failed",
+                    "failure_reason": str(exc),
+                }
+    return results
 
 
 if __name__ == "__main__":

@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 from bm25 import BM25
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_INDEX = Path("indexes/local/index.json")
 
@@ -163,7 +165,11 @@ def retrieve_hybrid(
 
 def retrieve(query: str, index_path: Path, limit: int, **kwargs) -> dict[str, object]:
     """Main retrieval entry point — backward compatible with existing callers."""
-    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("failed to read index %s: %s", index_path, exc)
+        return {"query": query, "results": [], "error": f"Failed to read index: {exc}"}
     documents = payload.get("documents", [])
 
     embedding_index_path = kwargs.get("embedding_index_path")

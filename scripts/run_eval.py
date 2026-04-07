@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 # Import run_pipeline (scripts dir is on sys.path when run as script)
 from run_pipeline import run_pipeline
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INDEX = ROOT / "indexes" / "local" / "index.json"
@@ -233,7 +236,7 @@ def main() -> int:
     if args.category:
         cases = [c for c in cases if c.category == args.category]
         if not cases:
-            print(f"No cases found for category '{args.category}'.", file=sys.stderr)
+            logger.warning("No cases found for category '%s'.", args.category)
             return 1
 
     report = run_evaluation(cases, dry_run=args.dry_run)

@@ -6,6 +6,8 @@ import argparse
 import re
 from pathlib import Path
 
+from common import safe_slug
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Promote a distilled note into a local card candidate.")
@@ -17,10 +19,6 @@ def parse_args() -> argparse.Namespace:
         help="Root knowledge directory where promoted candidates should be written.",
     )
     return parser.parse_args()
-
-
-def slugify(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
 def extract_section(text: str, heading: str) -> list[str]:
@@ -73,7 +71,7 @@ def collect_citation_ids(text: str) -> list[str]:
 
 
 def build_candidate_markdown(query: str, card_type: str, citation_ids: list[str], direct_support: list[str]) -> str:
-    slug = slugify(query)
+    slug = safe_slug(query)
     lines = [
         "---",
         f"id: distilled-{slug}",
@@ -119,7 +117,7 @@ def main() -> int:
 
     output_dir = args.knowledge_root / folder
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"candidate-{slugify(query)}.md"
+    output_path = output_dir / f"candidate-{safe_slug(query)}.md"
     output_path.write_text(
         build_candidate_markdown(query, card_type, citation_ids, direct_support),
         encoding="utf-8",

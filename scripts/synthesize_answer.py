@@ -187,6 +187,48 @@ def parse_answer(raw_content: str) -> dict[str, Any]:
     }
 
 
+def validate_claims(answer: dict[str, Any], valid_evidence_ids: set[str]) -> dict[str, Any]:
+    """Validate that claims reference existing evidence IDs.
+
+    Strips invalid evidence_ids from supporting_claims and adds
+    a warning to uncertainty for each invalid reference found.
+    """
+    claims = answer.get("supporting_claims", [])
+    if not claims:
+        return answer
+
+    warnings: list[str] = []
+    cleaned_claims: list[dict[str, Any]] = []
+
+    for claim in claims:
+        if not isinstance(claim, dict):
+            cleaned_claims.append(claim)
+            continue
+
+        ids = claim.get("evidence_ids", [])
+        valid = [eid for eid in ids if str(eid) in valid_evidence_ids]
+        invalid = [eid for eid in ids if str(eid) not in valid_evidence_ids]
+
+        if invalid:
+            warnings.append(
+                f"Claim references non-existent evidence IDs: {invalid}"
+            )
+            cleaned = {**claim, "evidence_ids": valid}
+            if not valid:
+                cleaned["_orphaned"] = True
+            cleaned_claims.append(cleaned)
+        else:
+            cleaned_claims.append(claim)
+
+    result = {**answer, "supporting_claims": cleaned_claims}
+    if warnings:
+        uncertainty = list(answer.get("uncertainty", []))
+        uncertainty.extend(warnings)
+        result["uncertainty"] = uncertainty
+
+    return result
+
+
 def build_synthesis_output(
     answer: dict[str, Any],
     prompt_bundle: dict[str, Any],
@@ -194,6 +236,14 @@ def build_synthesis_output(
     usage: dict[str, Any],
 ) -> dict[str, Any]:
     """Assemble the final synthesis output with metadata."""
+    # Validate claim evidence IDs against citations
+    valid_ids = {
+        c.get("evidence_id")
+        for c in prompt_bundle.get("citations", [])
+        if c.get("evidence_id")
+    }
+    if valid_ids:
+        answer = validate_claims(answer, valid_ids)
     return {
         "query": prompt_bundle.get("metadata", {}).get("query", ""),
         "route": prompt_bundle.get("metadata", {}).get("route", ""),

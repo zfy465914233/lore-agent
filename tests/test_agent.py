@@ -1,7 +1,6 @@
 """Tests for the agent control loop (agent.py)."""
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -11,14 +10,21 @@ SCRIPTS = ROOT / "scripts"
 INDEX_PATH = ROOT / "indexes" / "local" / "index.json"
 FAKE_HARNESS = ROOT / "tests" / "fake_research_harness.py"
 
+# Ensure scripts/ is importable
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
-def _inline(script: str) -> str:
-    """Build inline Python that imports Path and agent module."""
-    return (
-        "from pathlib import Path; "
-        "from agent import DomainAgent, Router, Researcher; "
-        "import json; "
-        + script
+from agent import DomainAgent, Router, Researcher  # noqa: E402
+
+
+def _build_index() -> None:
+    """Build the test index once."""
+    import subprocess
+    subprocess.run(
+        [sys.executable, str(SCRIPTS / "local_index.py"),
+         "--knowledge-root", str(ROOT / "tests" / "fixtures"),
+         "--output", str(INDEX_PATH)],
+        capture_output=True, text=True,
     )
 
 
@@ -27,23 +33,14 @@ class AgentStateMachineTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        subprocess.run(
-            [sys.executable, str(SCRIPTS / "local_index.py"), "--knowledge-root", str(ROOT / "tests" / "fixtures"), "--output", str(INDEX_PATH)],
-            capture_output=True,
-            text=True,
-        )
+        _build_index()
 
     def test_agent_routes_local_led_for_definition(self) -> None:
-        code = _inline(
-            f"a = DomainAgent(index_path=Path('{INDEX_PATH}'), research_script=Path('{FAKE_HARNESS}')); "
-            "print(json.dumps(a.run('what is a markov chain', dry_run=True)))"
+        a = DomainAgent(
+            index_path=INDEX_PATH,
+            research_script=FAKE_HARNESS,
         )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        output = json.loads(result.stdout)
+        output = a.run("what is a markov chain", dry_run=True)
         self.assertEqual("local-led", output["route"])
         self.assertEqual("dry_run", output["pipeline_status"])
 
@@ -54,17 +51,32 @@ class AgentStateMachineTest(unittest.TestCase):
         self.assertIn("synthesize", states)
 
     def test_agent_routes_web_led_for_freshness(self) -> None:
-        code = _inline(
-            f"a = DomainAgent(index_path=Path('{INDEX_PATH}'), research_script=Path('{FAKE_HARNESS}')); "
-            "print(json.dumps(a.run('latest QPE methods', dry_run=True)))"
+        a = DomainAgent(
+            index_path=INDEX_PATH,
+            research_script=FAKE_HARNESS,
         )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        output = json.loads(result.stdout)
+        output = a.run("latest QPE methods", dry_run=True)
         self.assertEqual("web-led", output["route"])
+
+    def test_curate_flag_triggers_curate_state(self) -> None:
+        a = DomainAgent(
+            index_path=INDEX_PATH,
+            research_script=FAKE_HARNESS,
+        )
+        output = a.run("what is a markov chain", dry_run=True, curate=True)
+        transitions = output["state_transitions"]
+        to_states = [t["to"] for t in transitions]
+        self.assertIn("curate", to_states)
+
+    def test_max_retries_refines_query(self) -> None:
+        a = DomainAgent(
+            index_path=INDEX_PATH,
+            research_script=FAKE_HARNESS,
+            max_retries=1,
+        )
+        # Even with retries, the agent should complete
+        output = a.run("what is a markov chain", dry_run=True)
+        self.assertIn(output["pipeline_status"], ("dry_run", "complete"))
 
 
 class RouterTest(unittest.TestCase):
@@ -72,51 +84,30 @@ class RouterTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        subprocess.run(
-            [sys.executable, str(SCRIPTS / "local_index.py"), "--knowledge-root", str(ROOT / "tests" / "fixtures"), "--output", str(INDEX_PATH)],
-            capture_output=True, text=True,
-        )
+        _build_index()
 
     def test_classify_definition_query(self) -> None:
-        code = (
-            f"from pathlib import Path; from agent import Router; "
-            f"r = Router(); print(r.classify('what is a markov chain', Path('{INDEX_PATH}')))"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        self.assertEqual("local-led", result.stdout.strip())
+        r = Router()
+        route = r.classify("what is a markov chain", INDEX_PATH)
+        self.assertEqual("local-led", route)
 
     def test_classify_freshness_query(self) -> None:
-        code = (
-            f"from pathlib import Path; from agent import Router; "
-            f"r = Router(); print(r.classify('latest SOTA quantization', Path('{INDEX_PATH}')))"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        self.assertEqual("web-led", result.stdout.strip())
+        r = Router()
+        route = r.classify("latest SOTA quantization", INDEX_PATH)
+        self.assertEqual("web-led", route)
 
     def test_should_research_web(self) -> None:
-        code = (
-            "from agent import Router; r = Router(); "
-            "print(r.should_research_web('local-led')); "
-            "print(r.should_research_web('web-led')); "
-            "print(r.should_research_web('mixed'));"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        lines = result.stdout.strip().split("\n")
-        self.assertEqual("False", lines[0])
-        self.assertEqual("True", lines[1])
-        self.assertEqual("True", lines[2])
+        r = Router()
+        self.assertFalse(r.should_research_web("local-led"))
+        self.assertTrue(r.should_research_web("web-led"))
+        self.assertTrue(r.should_research_web("mixed"))
+
+    def test_should_research_local(self) -> None:
+        r = Router()
+        self.assertTrue(r.should_research_local("local-led"))
+        self.assertTrue(r.should_research_local("mixed"))
+        self.assertTrue(r.should_research_local("web-led"))
+        self.assertFalse(r.should_research_local("context-led"))
 
 
 class ResearcherTest(unittest.TestCase):
@@ -124,53 +115,25 @@ class ResearcherTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        subprocess.run(
-            [sys.executable, str(SCRIPTS / "local_index.py"), "--knowledge-root", str(ROOT / "tests" / "fixtures"), "--output", str(INDEX_PATH)],
-            capture_output=True, text=True,
-        )
+        _build_index()
 
     def test_gather_returns_structured_context(self) -> None:
-        code = _inline(
-            f"r = Researcher(index_path=Path('{INDEX_PATH}'), research_script=Path('{FAKE_HARNESS}')); "
-            "ctx = r.gather('what is a markov chain', 'local-led'); "
-            "print(json.dumps(sorted(ctx.keys())))"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        keys = json.loads(result.stdout)
+        r = Researcher(index_path=INDEX_PATH, research_script=FAKE_HARNESS)
+        ctx = r.gather("what is a markov chain", "local-led")
         for expected in ["query", "route", "direct_support", "inference_notes", "uncertainty_notes", "citations"]:
-            self.assertIn(expected, keys)
+            self.assertIn(expected, ctx)
 
     def test_evidence_sufficiency_check(self) -> None:
-        code = _inline(
-            f"r = Researcher(index_path=Path('{INDEX_PATH}'), research_script=Path('{FAKE_HARNESS}')); "
-            "ctx = r.gather('what is a markov chain', 'local-led'); "
-            "sufficient, reason = r.is_evidence_sufficient(ctx); "
-            "print(sufficient, reason)"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        self.assertTrue(result.stdout.strip().startswith("True"))
+        r = Researcher(index_path=INDEX_PATH, research_script=FAKE_HARNESS)
+        ctx = r.gather("what is a markov chain", "local-led")
+        sufficient, reason = r.is_evidence_sufficient(ctx)
+        self.assertTrue(sufficient)
 
     def test_evidence_insufficient_on_empty(self) -> None:
-        code = (
-            "from agent import Researcher; "
-            "r = Researcher(); "
-            "sufficient, reason = r.is_evidence_sufficient({'direct_support': [], 'uncertainty_notes': []}); "
-            "print(sufficient, reason)"
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True, text=True, cwd=SCRIPTS,
-        )
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        self.assertTrue(result.stdout.strip().startswith("False"))
+        r = Researcher()
+        sufficient, reason = r.is_evidence_sufficient({"direct_support": [], "uncertainty_notes": []})
+        self.assertFalse(sufficient)
+        self.assertEqual("No direct evidence found.", reason)
 
 
 if __name__ == "__main__":

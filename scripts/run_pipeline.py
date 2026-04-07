@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 DEFAULT_INDEX = ROOT / "indexes" / "local" / "index.json"
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,14 +156,14 @@ def main() -> int:
 
     # Ensure index exists
     if not args.index.exists():
-        print(f"Building index at {args.index}...", file=sys.stderr)
+        logger.info("Building index at %s...", args.index)
         build_result = subprocess.run(
             [sys.executable, str(SCRIPTS / "local_index.py"), "--output", str(args.index)],
             capture_output=True,
             text=True,
         )
         if build_result.returncode != 0:
-            print(f"Failed to build index: {build_result.stderr}", file=sys.stderr)
+            logger.error("Failed to build index: %s", build_result.stderr)
             return 1
 
     try:
@@ -174,7 +177,7 @@ def main() -> int:
             keep_intermediate=args.keep_intermediate,
         )
     except RuntimeError as exc:
-        print(f"Pipeline error: {exc}", file=sys.stderr)
+        logger.error("Pipeline error: %s", exc)
         return 1
 
     text = json.dumps(output, ensure_ascii=False, indent=2)
