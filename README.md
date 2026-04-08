@@ -17,7 +17,8 @@ A **zero-dependency, drop-in knowledge agent** that gives any project local retr
 | **Knowledge lifecycle** | draft → reviewed → trusted → stale → deprecated, with dedup & governance | Add docs, search docs — no lifecycle |
 | **Knowledge loop** | Research → distill → promote → reindex. The system gets smarter over time | One-way: ingest then retrieve |
 | **MCP support** | Claude Code + VS Code Copilot out of the box | Usually one or none |
-| **Answer structure** | Enforced JSON schema: claims, inferences, uncertainty, missing evidence | Raw text chunks |
+| **Answer structure** | Enforced JSON schema: claims, inferences, uncertainty, missing evidence, visual aids | Raw text chunks |
+| **Visual aids** | Auto-generated Mermaid diagrams + source page images captured and filtered | None |
 
 ## Quick Start
 
@@ -67,7 +68,8 @@ Lore Agent exposes 3 tools to LLM agents:
 | Tool | Description |
 |------|-------------|
 | `query_knowledge(query, limit?)` | Search local knowledge base |
-| `save_research(query, answer_json)` | Save research results as a knowledge card |
+| `save_research(query, answer_json)` | Save research results as a knowledge card. Supports `visual_aids` (Mermaid diagrams, source images) |
+| `list_knowledge(topic?)` | Browse all knowledge cards | |
 | `list_knowledge(topic?)` | Browse all knowledge cards |
 
 ### Claude Code
@@ -106,7 +108,8 @@ Query → Router (local-led / web-led / mixed / context-led)
 1. **Router** classifies queries — definitions go local, fresh topics go web, complex ones mix both, code/debug goes context-led
 2. **Researcher** gathers evidence with multi-query expansion (depth-aware), concurrent URL fetching, and BM25 + optional semantic embeddings for hybrid search
 3. **Synthesizer** produces structured answers with claims, inferences, uncertainty, and action items. Claims are validated against actual evidence IDs
-4. **Knowledge Loop** saves research as Markdown cards, promotes drafts, and incrementally rebuilds the index — the system accumulates knowledge over time
+4. **Visual Aids** — the system auto-judges when visuals improve understanding: Mermaid diagrams for processes/architectures/comparisons, and source page images (charts, figures) are captured and filtered from research evidence
+5. **Knowledge Loop** saves research as Markdown cards with embedded visuals, promotes drafts, and incrementally rebuilds the index — the system accumulates knowledge over time
 5. **Retry** — if evidence is insufficient, the agent refines the query and loops back (configurable `max_retries`)
 
 ## Search Boundary
