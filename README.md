@@ -7,6 +7,7 @@
 [中文](README.zh-CN.md)
 
 > LLMs lack up-to-date, domain-specific knowledge. Lore Agent fixes this with **online research + local knowledge accumulation**, making your AI smarter in your domain over time. Integrates with Claude Code and VS Code Copilot via MCP.
+> 通用大模型在专业领域的知识不够优、不够新。Lore Agent 通过**在线研究补充 + 本地知识库沉淀**实现知识治理，让 AI 在你的领域越用越强。通过 MCP 接入 Claude Code 与 VS Code Copilot。
 
 ## Core Mechanism: Research → Accumulate → Get Smarter
 
