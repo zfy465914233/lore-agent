@@ -4,55 +4,55 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![MCP Ready](https://img.shields.io/badge/MCP-Ready-brightgreen.svg)
 
-> 通用大模型在专业领域的知识不够优、不够新。Lore Agent 通过**在线研究补充 + 本地知识库沉淀**实现知识治理，让 AI 在你的领域越用越强。
+[中文](README.zh-CN.md)
 
-## 核心机制：研究 → 沉淀 → 越用越强
+> LLMs lack up-to-date, domain-specific knowledge. Lore Agent fixes this with **online research + local knowledge accumulation**, making your AI smarter in your domain over time. Integrates with Claude Code and VS Code Copilot via MCP.
 
-大模型的训练数据是静态的。当你需要它回答专业领域或最新进展时，它只能靠通用知识猜。
+## Core Mechanism: Research → Accumulate → Get Smarter
 
-Lore Agent 给它加了一个**知识飞轮**：
+LLM training data is static. When you need answers about specialized domains or recent developments, it can only guess from general knowledge.
+
+Lore Agent adds a **knowledge flywheel**:
 
 ```
-你的提问
+Your question
     │
     ▼
-在线研究（AI agent 搜索 + SearXNG + 学术 API）
+Online research (AI agent search + SearXNG + academic APIs)
     │
     ▼
-结构化合成（带引用来源、置信度、不确定性标注）
+Structured synthesis (with citations, confidence, uncertainty)
     │
     ▼
-本地沉淀（Markdown 知识卡片 + BM25 索引）
+Local accumulation (Markdown knowledge cards + BM25 index)
     │
     ▼
-下次提问时，AI 先查本地 ──命中?──► 直接用，快且准
-    │ 未命中
+Next question: AI checks local first ── hit? ──► use directly, fast & accurate
+    │ miss
     ▼
-再次在线研究 → 沉淀 → 索引更新 ──► 知识库持续增长
+Research again → accumulate → reindex ──► knowledge base keeps growing
 ```
 
-每一轮使用都在积累。第一次问某个领域的问题需要在线研究，第二次问相关问题时，AI 直接从你的本地知识库里拿，又快又准。
+Every round of use builds up. The first time you ask about a domain, it researches online. The second time you ask a related question, AI pulls from your local knowledge base — fast and accurate.
 
-知识卡片有完整的生命周期管理：**draft → reviewed → trusted → stale → deprecated**。过时的知识会被标记，新研究会覆盖旧结论。
+Knowledge cards have full lifecycle management: **draft → reviewed → trusted → stale → deprecated**. Outdated knowledge gets flagged, new research overwrites old conclusions.
 
-## 与同类项目对比
+## Comparison
 
 | | Lore Agent | Prompt-based Wiki (e.g. llm-wiki-agent) |
 |---|---|---|
-| **研究能力** | AI agent 搜索 + SearXNG 元搜索 + OpenAlex / Semantic Scholar 学术 API + 本地 BM25 / embedding，证据归一化合并 | 依赖 LLM 自身能力，无独立搜索管线 |
-| **知识生命周期** | draft → reviewed → trusted → stale → deprecated | 无——文件就是文件 |
-| **知识飞轮** | 研究 → 沉淀 → 复用 → 越用越强 | 单向：LLM 写，人读 |
-| **答案质量** | 结构化 JSON：claims + 证据 ID + 不确定性 | 原始文本 |
-| **图谱与互联** | `[[wiki-links]]`、反向链接、vis.js 图谱 | 基于文件夹，无交叉引用 |
+| **Research** | AI agent search + SearXNG meta-search + OpenAlex / Semantic Scholar APIs + local BM25 / embedding, evidence normalized & merged | Relies on LLM's own ability, no independent search pipeline |
+| **Knowledge lifecycle** | draft → reviewed → trusted → stale → deprecated | None — files are files |
+| **Knowledge flywheel** | Research → accumulate → reuse → gets smarter | One-way: LLM writes, human reads |
+| **Answer quality** | Structured JSON: claims + evidence IDs + uncertainty | Raw text |
+| **Graph & linking** | `[[wiki-links]]`, backlinks, interactive vis.js graph | Folder-based, no cross-references |
 
-## 更多特色
+## More Features
 
-- **多视角研究** — 可从学术、技术、应用、对立、历史五个视角并行研究同一问题，避免单一来源偏差
-- **Obsidian 兼容** — 知识卡片是标准 Markdown + YAML frontmatter + `[[wiki-links]]`，可直接用 Obsidian 浏览管理
-- **知识治理 CLI** — 校验 frontmatter、检测孤立卡片和断链、发现重复、管理卡片状态流转
-- **Provider 容错** — 各搜索源独立容错，外网不可用时仅用本地检索
-
-
+- **Multi-perspective research** — Parallel research from 5 perspectives (academic, technical, applied, contrarian, historical) to avoid single-source bias
+- **Obsidian compatible** — Cards are standard Markdown + YAML frontmatter + `[[wiki-links]]`, browse directly in Obsidian
+- **Knowledge governance CLI** — Validate frontmatter, detect orphaned cards and broken links, find duplicates, manage card state transitions
+- **Provider fault tolerance** — Each search source fails independently; falls back to local retrieval when offline
 
 ## Quick Start
 
@@ -69,45 +69,45 @@ python scripts/local_index.py --output indexes/local/index.json
 docker compose up -d
 ```
 
-通过 MCP 接入 Claude Code 和 VS Code Copilot——配置已预置，启动即用：
+MCP configs are pre-configured for both Claude Code and VS Code Copilot:
 
-- **Claude Code**：`.mcp.json` 已配好，`cd` 到项目目录启动即可
-- **VS Code Copilot**：`.vscode/mcp.json` 已配好，打开项目启用 agent 模式即可
+- **Claude Code**: `.mcp.json` is ready. `cd` into the project and start Claude Code.
+- **VS Code Copilot**: `.vscode/mcp.json` is ready. Open the project, enable agent mode.
 
-### 嵌入到已有项目
+### Embed into an existing project
 
 ```bash
 cp -r lore-agent/ your-project/lore-agent/
 cd your-project && python lore-agent/setup_mcp.py
 ```
 
-自动生成配置。知识库在**你的项目里**，不在 lore-agent 内部。
+Auto-generates config. Knowledge lives in **your project**, not inside lore-agent.
 
-## MCP 工具
+## MCP Tools
 
-AI agent 通过 6 个 MCP 工具与知识库交互：
+AI agents interact with the knowledge base through 6 MCP tools:
 
-| 工具 | 说明 |
-|------|------|
-| `query_knowledge` | 搜索本地知识库 |
-| `save_research` | 保存研究结果为知识卡片（支持 Mermaid 图表、来源图片） |
-| `list_knowledge` | 浏览所有知识卡片 |
-| `capture_answer` | 快速捕获问答为草稿卡片 |
-| `ingest_source` | 摄入 URL 或文本到知识库 |
-| `build_graph` | 生成交互式知识图谱（vis.js） |
+| Tool | Description |
+|------|-------------|
+| `query_knowledge` | Search local knowledge base |
+| `save_research` | Save research results as a knowledge card (supports Mermaid diagrams, source images) |
+| `list_knowledge` | Browse all knowledge cards |
+| `capture_answer` | Quick-capture a Q&A pair as a draft card |
+| `ingest_source` | Ingest a URL or raw text into the knowledge base |
+| `build_graph` | Generate an interactive knowledge graph (vis.js) |
 
-## 项目结构
+## Project Structure
 
 ```
 lore-agent/
-├── mcp_server.py              # MCP server（6 tools）
-├── setup_mcp.py               # 嵌入已有项目
+├── mcp_server.py              # MCP server (6 tools)
+├── setup_mcp.py               # Embed into existing projects
 ├── docker-compose.yml         # SearXNG
 ├── requirements.txt
 ├── schemas/                   # Answer + evidence JSON schemas
-├── scripts/                   # 检索、研究、合成、治理、图谱
-├── knowledge/                 # 知识卡片（Markdown + YAML frontmatter）
-├── indexes/                   # 生成的索引（gitignored）
+├── scripts/                   # Retrieval, research, synthesis, governance, graph
+├── knowledge/                 # Knowledge cards (Markdown + YAML frontmatter)
+├── indexes/                   # Generated (gitignored)
 └── tests/                     # 192 tests, ~5s
 ```
 
