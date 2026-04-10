@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -127,8 +128,12 @@ def _probe_local_score(query: str, index_path: Path | None = None) -> float | No
             return None
         results = retrieve_bm25(query, documents, 1)
         return results[0]["score"] if results else 0.0
-    except Exception:
+    except Exception as exc:
+        logger.warning("Local score probe failed: %s", exc)
         return None
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_decision(route: str, has_web_evidence: bool) -> dict[str, object]:

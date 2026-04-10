@@ -37,7 +37,7 @@ def render_user_prompt(payload: dict[str, object]) -> str:
     citations = payload.get("citations", [])
 
     lines = [
-        f"Question: {payload.get('query', '')}",
+        f"Question: {json.dumps(payload.get('query', ''), ensure_ascii=False)}",
         f"Route: {payload.get('route', '')}",
         "",
         "Direct Support:",

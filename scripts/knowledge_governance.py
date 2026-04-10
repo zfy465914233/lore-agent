@@ -199,15 +199,14 @@ def cmd_lint(knowledge_root: Path, stale_days: int = 90) -> int:
         for t in targets:
             incoming.setdefault(t, set()).add(cid)
 
-    # Check orphans
+    # Check orphans (no outgoing links AND no incoming backlinks)
     orphans = []
     for card in cards:
         cid = card.get("id", "")
         has_out = bool(outgoing.get(cid))
-        has_in = bool(incoming.get(cid, set()) | {s for s, targets in incoming.items() if cid in targets})
-        # Also check if any other card links TO this card
-        backlinks = {s for s, targets in incoming.items() if cid in targets}
-        if not has_out and not backlinks:
+        # Check if any other card links TO this card (resolve partial matches)
+        has_in = any(cid in targets for targets in incoming.values())
+        if not has_out and not has_in:
             orphans.append(card)
 
     if orphans:

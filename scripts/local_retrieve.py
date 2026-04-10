@@ -102,8 +102,8 @@ def retrieve_hybrid(
             from embedding_retrieve import retrieve_by_embedding
             emb_results = retrieve_by_embedding(query, embedding_index, k=limit * 3)
             emb_scores = {doc_id: score for doc_id, score in emb_results}
-        except Exception:
-            pass  # Graceful fallback to BM25-only
+        except Exception as exc:
+            logger.warning("Embedding retrieval failed, falling back to BM25-only: %s", exc)
 
     if not emb_scores:
         # No embedding data available, use BM25 only

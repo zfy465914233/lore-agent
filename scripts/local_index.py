@@ -195,48 +195,46 @@ def build_index_incremental(
 
     card_paths = iter_cards(knowledge_root)
 
-    # Build current manifest: relative path -> mtime
+    # Build current manifest using absolute paths as canonical keys
     current_manifest: dict[str, float] = {}
+    # Map absolute path -> card Path for quick lookup
+    path_by_abs: dict[str, Path] = {}
     for path in card_paths:
-        rel = str(path.relative_to(knowledge_root).as_posix())
-        current_manifest[rel] = path.stat().st_mtime
+        abs_key = str(path.resolve().as_posix())
+        current_manifest[abs_key] = path.stat().st_mtime
+        path_by_abs[abs_key] = path
 
     # Determine which cards need re-parsing
     changed: set[str] = set()
-    for rel, mtime in current_manifest.items():
-        abs_key = str((knowledge_root / rel).as_posix())
-        if old_manifest.get(abs_key) != mtime and old_manifest.get(rel) != mtime:
+    for abs_key, mtime in current_manifest.items():
+        if old_manifest.get(abs_key) != mtime:
             changed.add(abs_key)
-            changed.add(rel)
 
     # Also add any new cards (not in old manifest)
-    for rel in current_manifest:
-        abs_key = str((knowledge_root / rel).as_posix())
-        if abs_key not in old_manifest and rel not in old_manifest:
+    for abs_key in current_manifest:
+        if abs_key not in old_manifest:
             changed.add(abs_key)
 
-    # Re-parse changed cards
+    # Build docs only from cards that currently exist (removes deleted ghosts)
     new_docs: dict[str, dict] = {}
-    for path in card_paths:
-        abs_path = str(path.as_posix())
-        if abs_path in changed:
-            new_docs[abs_path] = parse_card(path)
-        elif abs_path in existing_docs:
-            new_docs[abs_path] = existing_docs[abs_path]
+    for abs_key, path in path_by_abs.items():
+        if abs_key in changed:
+            new_docs[abs_key] = parse_card(path)
+        elif abs_key in existing_docs:
+            new_docs[abs_key] = existing_docs[abs_key]
         else:
-            new_docs[abs_path] = parse_card(path)
+            new_docs[abs_key] = parse_card(path)
 
     documents = list(new_docs.values())
     _attach_backlinks(documents)
+
+    removed = len(existing_docs) - len(existing_docs.keys() & current_manifest.keys())
     logger.info(
-        "Incremental index: %d docs total, %d re-parsed",
-        len(documents), len(changed),
+        "Incremental index: %d docs total, %d re-parsed, %d removed",
+        len(documents), len(changed & current_manifest.keys()), removed,
     )
 
-    manifest = {}
-    for path in card_paths:
-        rel = str(path.relative_to(knowledge_root).as_posix())
-        manifest[str(path.as_posix())] = path.stat().st_mtime
+    manifest = dict(current_manifest)
     _save_manifest(manifest, index_output)
 
     return {
@@ -253,7 +251,7 @@ def _build_manifest(payload: dict, knowledge_root: Path) -> dict[str, float]:
         try:
             p = Path(path_str)
             if p.exists():
-                manifest[path_str] = p.stat().st_mtime
+                manifest[str(p.resolve().as_posix())] = p.stat().st_mtime
         except OSError:
             pass
     return manifest
