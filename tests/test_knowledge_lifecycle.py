@@ -191,6 +191,14 @@ class GovernanceCLITest(unittest.TestCase):
         self.assertIn("draft", result.stdout)
         self.assertIn("trusted", result.stdout)
 
+    def test_lint_command(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "knowledge_governance.py"), "lint", "--stale-days", "365"],
+            capture_output=True, text=True,
+        )
+        # lint returns 1 if issues found, but should not crash
+        self.assertIn("cards", result.stdout.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

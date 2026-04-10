@@ -12,7 +12,7 @@ import json
 import logging
 from pathlib import Path
 
-from common import parse_frontmatter
+from common import extract_wiki_links, parse_frontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ def parse_args() -> argparse.Namespace:
 def parse_card(path: Path) -> dict[str, object]:
     raw = path.read_text(encoding="utf-8")
     metadata, body = split_frontmatter(raw)
+    links = extract_wiki_links(body)
     return {
         "doc_id": str(metadata.get("id", path.stem)),
         "path": str(path.as_posix()),
@@ -63,6 +64,7 @@ def parse_card(path: Path) -> dict[str, object]:
         "source_refs": metadata.get("source_refs", []),
         "updated_at": metadata.get("updated_at"),
         "search_text": build_search_text(metadata, body),
+        "links": links,
     }
 
 
@@ -119,9 +121,45 @@ def _save_manifest(manifest: dict[str, float], index_output: Path) -> None:
     mp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def build_backlinks(documents: list[dict]) -> dict[str, list[str]]:
+    """Build a mapping of doc_id -> list of doc_ids that link to it.
+
+    Links are resolved by exact doc_id match first, then by partial
+    match (target is a substring of the doc_id).
+    """
+    backlinks: dict[str, list[str]] = {}
+    doc_ids = {doc["doc_id"] for doc in documents}
+
+    for doc in documents:
+        source_id = doc["doc_id"]
+        for target in doc.get("links", []):
+            # Resolve link target to an actual doc_id
+            resolved = None
+            if target in doc_ids:
+                resolved = target
+            else:
+                # Partial match: target could be a slug fragment
+                for did in doc_ids:
+                    if target in did:
+                        resolved = did
+                        break
+            if resolved and resolved != source_id:
+                backlinks.setdefault(resolved, []).append(source_id)
+
+    return backlinks
+
+
+def _attach_backlinks(documents: list[dict]) -> None:
+    """Attach backlink lists to each document in-place."""
+    bl_map = build_backlinks(documents)
+    for doc in documents:
+        doc["backlinks"] = bl_map.get(doc["doc_id"], [])
+
+
 def build_index(knowledge_root: Path) -> dict[str, object]:
     """Build a full index from scratch."""
     documents = [parse_card(path) for path in iter_cards(knowledge_root)]
+    _attach_backlinks(documents)
     return {
         "knowledge_root": str(knowledge_root.as_posix()),
         "documents": documents,
@@ -189,6 +227,7 @@ def build_index_incremental(
             new_docs[abs_path] = parse_card(path)
 
     documents = list(new_docs.values())
+    _attach_backlinks(documents)
     logger.info(
         "Incremental index: %d docs total, %d re-parsed",
         len(documents), len(changed),

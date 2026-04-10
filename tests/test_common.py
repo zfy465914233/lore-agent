@@ -12,7 +12,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from common import load_json, normalize_date, now_iso, parse_frontmatter, safe_slug, slugify, write_json
+from common import extract_wiki_links, load_json, normalize_date, now_iso, parse_frontmatter, safe_slug, slugify, write_json
 
 
 class ParseFrontmatterTest(unittest.TestCase):
@@ -165,6 +165,22 @@ class NowIsoTest(unittest.TestCase):
         result = now_iso()
         parsed = datetime.fromisoformat(result)
         self.assertIsNotNone(parsed.tzinfo)  # must be timezone-aware
+
+
+class ExtractWikiLinksTest(unittest.TestCase):
+    def test_single_link(self) -> None:
+        self.assertEqual(["markov-chain"], extract_wiki_links("see [[markov-chain]] for details"))
+
+    def test_multiple_links(self) -> None:
+        result = extract_wiki_links("see [[a]] and [[b]] and [[a]]")
+        self.assertEqual(["a", "b"], result)
+
+    def test_no_links(self) -> None:
+        self.assertEqual([], extract_wiki_links("no links here"))
+
+    def test_preserves_order(self) -> None:
+        result = extract_wiki_links("[[z]] [[a]] [[m]]")
+        self.assertEqual(["z", "a", "m"], result)
 
 
 if __name__ == "__main__":

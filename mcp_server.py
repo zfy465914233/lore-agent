@@ -190,9 +190,59 @@ def list_knowledge(topic: str | None = None) -> str:
             "topic": doc.get("topic", ""),
             "type": doc.get("type", ""),
             "path": doc.get("path", ""),
+            "links": doc.get("links", []),
+            "backlinks": doc.get("backlinks", []),
         })
 
     return json.dumps({"cards": cards, "total": len(cards)}, ensure_ascii=False, indent=2)
+
+
+@tool
+def capture_answer(query: str, answer: str, tags: str = "") -> str:
+    """Capture a useful Q&A answer as a draft knowledge card.
+
+    Use this when a conversation produces a substantive answer that isn't
+    already in the knowledge base and is worth persisting. The card is
+    created as a draft with low verification level.
+
+    Unlike save_research, this tool does not require structured JSON or
+    evidence — just the question and the answer text.
+
+    Args:
+        query: The question that was answered.
+        answer: The answer text (plain text or markdown).
+        tags: Comma-separated tags for the card (optional).
+    """
+    if not query or not query.strip():
+        return json.dumps({"error": "query must not be empty"})
+    if not answer or not answer.strip():
+        return json.dumps({"error": "answer must not be empty"})
+    for char in ("..", "/", "\\"):
+        if char in query:
+            return json.dumps({"error": "query must not contain path separators or traversal sequences"})
+
+    # Build a minimal structured answer for the card builder
+    answer_data = {
+        "answer": answer,
+        "supporting_claims": [],
+        "inferences": [],
+        "uncertainty": ["Captured from conversation — not yet verified against sources"],
+        "missing_evidence": ["Source references needed"],
+        "suggested_next_steps": ["Verify against authoritative sources", "Add supporting evidence"],
+    }
+
+    # Build the card
+    card_path = build_knowledge_card(query, answer_data, None, get_knowledge_dir())
+
+    # Rebuild index
+    reindex_ok = _reindex(get_knowledge_dir(), get_index_path())
+
+    return json.dumps({
+        "status": "ok",
+        "card_path": str(card_path),
+        "reindexed": reindex_ok,
+        "note": "Card created as draft. Verify and promote when confidence is confirmed.",
+    }, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
