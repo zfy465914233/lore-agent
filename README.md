@@ -239,21 +239,15 @@ Changes to cards are auto-recorded in `changelog.md` (project root).
 
 ## Agent Compatibility
 
-Lore Agent ships instruction files for major LLM coding agents:
-
 | Agent | File | Auto-loaded |
 |-------|------|-------------|
 | Claude Code | `CLAUDE.md` | ✅ |
-| VS Code Copilot | `.github/copilot-instructions.md` | ✅ |
-| Codex / OpenCode | `AGENTS.md` | ✅ |
-| Gemini CLI | `GEMINI.md` | ✅ |
-| Cursor | `.cursor/rules/lore-agent.mdc` | ✅ |
-| Windsurf | `.windsurf/rules/lore-agent.md` | ✅ |
+| VS Code Copilot | `.vscode/mcp.json` | ✅ |
 
 ## Running Tests
 
 ```bash
-python -m pytest tests/ -v    # 189 tests, ~5s
+python -m pytest tests/ -v    # 192 tests, ~5s
 ```
 
 The close-loop tests use a temporary knowledge tree and temporary index output, so they do not rewrite the active project index even in embedded mode.
