@@ -6,9 +6,9 @@
 
 [中文](README.zh-CN.md)
 
-> 通用大模型在专业领域的知识不够优、不够新。Lore Agent 通过**在线研究补充 + 本地知识库沉淀**实现知识治理，让 AI 在你的领域越用越强。通过 MCP 接入 Claude Code 与 VS Code Copilot。
+> 通用大模型在专业领域常常不够准、也不够新。Lore Agent 通过“在线研究补充 + 本地知识沉淀”形成可持续的知识飞轮，让 AI 在你的领域越用越强，也为你提供、维护人类学习的知识库。通过 MCP 无缝接入 Claude Code 与 VS Code Copilot。
 
-> LLMs lack up-to-date, domain-specific knowledge. Lore Agent fixes this with **online research + local knowledge accumulation**, making your AI smarter in your domain over time. Integrates with Claude Code and VS Code Copilot via MCP.
+> General-purpose LLMs are often not accurate enough and not up-to-date enough in specialized domains. Lore Agent combines **online research augmentation + local knowledge accumulation** into a sustainable knowledge flywheel, so your AI gets stronger in your domain over time while also building and maintaining a human-readable knowledge base for learning. It integrates seamlessly with Claude Code and VS Code Copilot via MCP.
 
 ## Core Mechanism: Research → Accumulate → Get Smarter
 
@@ -35,7 +35,7 @@ Next question: AI checks local first ── hit? ──► use directly, fast & 
 Research again → accumulate → reindex ──► knowledge base keeps growing
 ```
 
-Every round of use builds up. The first time you ask about a domain, it researches online. The second time you ask a related question, AI pulls from your local knowledge base — fast and accurate.
+Each round compounds. For questions AI cannot answer well, it researches online and then stores the result locally. This provides reusable guidance for future design and coding tasks while also forming a human-readable knowledge base you can learn from quickly.
 
 Knowledge cards have full lifecycle management: **draft → reviewed → trusted → stale → deprecated**. Outdated knowledge gets flagged, new research overwrites old conclusions.
 
