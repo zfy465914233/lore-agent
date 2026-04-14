@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from common import safe_slug
+from domain_router import infer_domain as _infer_domain
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,19 +50,10 @@ def infer_card_type(query: str) -> str:
     return "knowledge"
 
 
-def infer_domain_folder(query: str) -> str:
-    normalized = query.lower().strip()
-    if any(term in normalized for term in ("markov", "stationary distribution", "stochastic")):
-        return "markov_chain"
-    if any(term in normalized for term in ("x-band", "radar", "rainfall", "precipitation")):
-        return "qpe"
-    if any(term in normalized for term in ("quantum", "iterative qpe", "phase estimation", " qpe")):
-        return "quantum_phase_estimation"
-    if any(term in normalized for term in ("duality", "linear programming", "optimization", "lp ")):
-        return "linear_programming"
-    if any(term in normalized for term in ("quantization", "compression", "deployment")):
-        return "model_quantization"
-    return "general"
+def infer_domain_folder(query: str, knowledge_root: Path) -> str:
+    """Infer domain folder using dynamic matching."""
+    slug, _path = _infer_domain(query, knowledge_root)
+    return slug
 
 
 def collect_citation_ids(text: str) -> list[str]:
@@ -109,7 +101,7 @@ def main() -> int:
     text = args.draft.read_text(encoding="utf-8")
     query = parse_query(text)
     card_type = infer_card_type(query)
-    folder = infer_domain_folder(query)
+    folder = infer_domain_folder(query, args.knowledge_root)
     citation_ids = collect_citation_ids(text)
     direct_support = extract_section(text, "Direct Support")
 

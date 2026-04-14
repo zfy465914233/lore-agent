@@ -185,7 +185,10 @@ def list_knowledge(topic: str | None = None) -> str:
 
     cards = []
     for doc in index_data.get("documents", []):
-        if topic and doc.get("topic") != topic:
+        if topic:
+            doc_topic = doc.get("topic", "")
+            if doc_topic != topic and not doc_topic.endswith("/" + topic) and not doc_topic.startswith(topic + "/"):
+                continue
             continue
         cards.append({
             "id": doc.get("doc_id", ""),

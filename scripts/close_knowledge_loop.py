@@ -31,6 +31,7 @@ ANSWER_SCHEMA_PATH = ROOT / "schemas" / "answer.schema.json"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 from common import safe_slug, extract_entities
+from domain_router import infer_domain as _infer_domain
 from lore_config import get_knowledge_dir, get_index_path
 from local_retrieve import retrieve as bm25_retrieve
 
@@ -68,18 +69,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def infer_domain(query: str) -> str:
-    q = query.lower()
-    if any(t in q for t in ("xgboost", "qpe", "radar", "rainfall", "precipitation", "quantitative")):
-        return "qpe"
-    if any(t in q for t in ("markov", "stochastic", "stationary")):
-        return "markov_chain"
-    if any(t in q for t in ("quantum", "phase estimation")):
-        return "quantum_phase_estimation"
-    if any(t in q for t in ("duality", "linear programming")):
-        return "linear_programming"
-    if any(t in q for t in ("quantization", "qat")):
-        return "model_quantization"
-    return "general"
+    """Backward-compatible wrapper: returns only the slug string."""
+    slug, _path = _infer_domain(query, DEFAULT_KNOWLEDGE_ROOT)
+    return slug
 
 
 def collect_source_urls(research_data: dict | None) -> list[str]:
@@ -249,7 +241,7 @@ def build_knowledge_card(
     index_path: Path | None = None,
 ) -> Path:
     """Build a knowledge card from research evidence and structured answer."""
-    domain = infer_domain(query)
+    domain, output_dir = _infer_domain(query, knowledge_root)
     card_type = _infer_card_type(query, answer_data)
     slug = safe_slug(query)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -425,7 +417,6 @@ def build_knowledge_card(
         lines.append("")
 
     # Write to knowledge tree
-    output_dir = knowledge_root / domain
     output_dir.mkdir(parents=True, exist_ok=True)
     card_path = output_dir / f"research-{slug}.md"
     card_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

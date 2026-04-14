@@ -96,8 +96,13 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, msg=result.stderr)
             self.assertIn("Knowledge card written", result.stderr)
 
-            # Verify card exists
-            card_path = self.knowledge_root / "general" / "research-test-loop-closing-query.md"
+            # Verify card exists (find actual path from stderr)
+            card_path = None
+            for line in result.stderr.splitlines():
+                if "Knowledge card written:" in line:
+                    card_path = Path(line.split("Knowledge card written:")[1].strip())
+                    break
+            self.assertIsNotNone(card_path, "Should find card path in log output")
             self.assertTrue(card_path.exists(), "Card should be written to knowledge tree")
 
             # Verify it's in the index
@@ -140,7 +145,12 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, msg=result.stderr)
 
-            card_path = self.knowledge_root / "general" / "research-test-schema-validation-query.md"
+            card_path = None
+            for line in result.stderr.splitlines():
+                if "Knowledge card written:" in line:
+                    card_path = Path(line.split("Knowledge card written:")[1].strip())
+                    break
+            self.assertIsNotNone(card_path, "Should find card path in log output")
             self.assertTrue(card_path.exists())
             content = card_path.read_text()
 
@@ -183,8 +193,12 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
             self.assertIn("Missing required field: supporting_claims", result.stderr)
 
             # Clean up
-            card_path = self.knowledge_root / "general" / "research-test-invalid-schema-query.md"
-            if card_path.exists():
+            card_path = None
+            for line in result.stderr.splitlines():
+                if "Knowledge card written:" in line:
+                    card_path = Path(line.split("Knowledge card written:")[1].strip())
+                    break
+            if card_path and card_path.exists():
                 card_path.unlink()
             subprocess.run(
                 [sys.executable, str(SCRIPTS / "local_index.py"), "--knowledge-root", str(self.knowledge_root), "--output", str(self.index_path)],

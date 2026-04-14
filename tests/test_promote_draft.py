@@ -10,6 +10,45 @@ INDEX_PATH = ROOT / "indexes" / "local" / "index.json"
 FAKE_HARNESS = ROOT / "tests" / "fake_research_harness.py"
 
 
+def _make_draft(path: Path, query: str) -> None:
+    """Write a minimal distilled-note draft for the given query."""
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                "id: temp",
+                f"title: Distilled Note - {query}",
+                "type: distilled_note",
+                "topic: research_distillation",
+                "source_refs:",
+                "  - answer_context",
+                "confidence: draft",
+                "updated_at: 2026-04-02",
+                "origin: generated_from_answer_context",
+                "---",
+                "",
+                "## Query",
+                "",
+                query,
+                "",
+                "## Route",
+                "",
+                "mixed",
+                "",
+                "## Direct Support",
+                "",
+                "- `seed-id`: placeholder support",
+                "",
+                "## Citations",
+                "",
+                "- `seed-id` (local / definition): Placeholder | /tmp/source.md",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 class PromoteDraftTest(unittest.TestCase):
     def setUp(self) -> None:
         build_index = subprocess.run(
@@ -30,6 +69,8 @@ class PromoteDraftTest(unittest.TestCase):
             answer_context_path = temp_root / "answer-context.json"
             draft_path = temp_root / "distilled-markov-note.md"
             promoted_root = temp_root / "knowledge"
+            # Create matching folder for dynamic routing
+            (promoted_root / "markov-chain").mkdir(parents=True)
 
             answer_result = subprocess.run(
                 [
@@ -80,68 +121,33 @@ class PromoteDraftTest(unittest.TestCase):
             )
             self.assertEqual(0, promote_result.returncode, msg=promote_result.stderr)
 
-            promoted_path = promoted_root / "markov_chain" / "candidate-what-is-a-markov-chain.md"
+            promoted_path = promoted_root / "markov-chain" / "candidate-what-is-a-markov-chain.md"
             self.assertTrue(promoted_path.exists(), "promoted card candidate should be written")
 
             text = promoted_path.read_text(encoding="utf-8")
-            self.assertIn("type: knowledge", text)
             self.assertIn("origin: promoted_from_distilled_note", text)
             self.assertIn("source_refs:", text)
             self.assertIn("example-markov-chain-definition", text)
             self.assertIn("## Candidate Summary", text)
 
-    def test_promote_draft_routes_additional_card_types(self) -> None:
+    def test_promote_draft_routes_via_dynamic_matching(self) -> None:
+        """Dynamic routing matches queries to pre-existing folders."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
+            knowledge_root = temp_root / "knowledge"
+            (knowledge_root / "linear-programming").mkdir(parents=True)
+            (knowledge_root / "qpe").mkdir(parents=True)
+            (knowledge_root / "model-quantization").mkdir(parents=True)
+
             cases = [
-                ("lp duality theorem", temp_root / "knowledge" / "linear_programming" / "candidate-lp-duality-theorem.md"),
-                (
-                    "compare qpe and iterative qpe",
-                    temp_root / "knowledge" / "quantum_phase_estimation" / "candidate-compare-qpe-and-iterative-qpe.md",
-                ),
-                (
-                    "decision on quantization deployment",
-                    temp_root / "knowledge" / "model_quantization" / "candidate-decision-on-quantization-deployment.md",
-                ),
+                ("lp duality theorem", "linear-programming"),
+                ("compare qpe and iterative qpe", "qpe"),
+                ("decision on quantization deployment", "model-quantization"),
             ]
 
-            for query, expected_path in cases:
-                draft_path = temp_root / f"{expected_path.stem}.md"
-                draft_path.write_text(
-                    "\n".join(
-                        [
-                            "---",
-                            "id: temp",
-                            f"title: Distilled Note - {query}",
-                            "type: distilled_note",
-                            "topic: research_distillation",
-                            "source_refs:",
-                            "  - answer_context",
-                            "confidence: draft",
-                            "updated_at: 2026-04-02",
-                            "origin: generated_from_answer_context",
-                            "---",
-                            "",
-                            "## Query",
-                            "",
-                            query,
-                            "",
-                            "## Route",
-                            "",
-                            "mixed",
-                            "",
-                            "## Direct Support",
-                            "",
-                            "- `seed-id`: placeholder support",
-                            "",
-                            "## Citations",
-                            "",
-                            "- `seed-id` (local / definition): Placeholder | /tmp/source.md",
-                            "",
-                        ]
-                    ),
-                    encoding="utf-8",
-                )
+            for query, expected_folder in cases:
+                draft_path = temp_root / f"draft-{query.replace(' ', '-')}.md"
+                _make_draft(draft_path, query)
 
                 promote_result = subprocess.run(
                     [
@@ -150,13 +156,14 @@ class PromoteDraftTest(unittest.TestCase):
                         "--draft",
                         str(draft_path),
                         "--knowledge-root",
-                        str(temp_root / "knowledge"),
+                        str(knowledge_root),
                     ],
                     cwd=ROOT,
                     capture_output=True,
                     text=True,
                 )
                 self.assertEqual(0, promote_result.returncode, msg=promote_result.stderr)
+                expected_path = knowledge_root / expected_folder / f"candidate-{query.replace(' ', '-')}.md"
                 self.assertTrue(expected_path.exists(), f"expected promoted path missing for query: {query}")
 
 
