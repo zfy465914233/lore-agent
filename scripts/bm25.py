@@ -13,6 +13,7 @@ from typing import Sequence
 
 
 TOKEN_RE = re.compile(r"[a-z0-9_-]+")
+CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
     "in", "is", "of", "on", "or", "that", "the", "to", "what", "when",
@@ -21,7 +22,18 @@ STOPWORDS = {
 
 
 def tokenize(text: str) -> list[str]:
-    return [t for t in TOKEN_RE.findall(text.lower()) if t not in STOPWORDS]
+    lowered = text.lower()
+    tokens = [t for t in TOKEN_RE.findall(lowered) if t not in STOPWORDS]
+
+    for chunk in CJK_RE.findall(lowered):
+        if len(chunk) == 1:
+            tokens.append(chunk)
+            continue
+
+        # Use overlapping bigrams as a lightweight Chinese tokenizer.
+        tokens.extend(chunk[i:i + 2] for i in range(len(chunk) - 1))
+
+    return tokens
 
 
 class BM25:

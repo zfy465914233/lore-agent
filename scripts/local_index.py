@@ -50,16 +50,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_card(path: Path) -> dict[str, object]:
+def parse_card(path: Path, knowledge_root: Path | None = None) -> dict[str, object]:
     raw = path.read_text(encoding="utf-8")
     metadata, body = split_frontmatter(raw)
     links = extract_wiki_links(body)
+    domain = str(metadata.get("domain", ""))
+    topic = str(metadata.get("topic", ""))
+    if knowledge_root is not None:
+        try:
+            relative_parts = path.relative_to(knowledge_root).parts
+        except ValueError:
+            relative_parts = ()
+        if not domain and len(relative_parts) >= 2:
+            domain = relative_parts[0]
+        if not topic and len(relative_parts) >= 3:
+            topic = relative_parts[1]
     return {
         "doc_id": str(metadata.get("id", path.stem)),
         "path": str(path.as_posix()),
         "title": str(metadata.get("title", path.stem)),
         "type": str(metadata.get("type", "unknown")),
-        "topic": str(metadata.get("topic", "")),
+        "domain": domain,
+        "topic": topic,
         "tags": metadata.get("tags", []),
         "source_refs": metadata.get("source_refs", []),
         "updated_at": metadata.get("updated_at"),
@@ -75,7 +87,7 @@ def split_frontmatter(raw: str) -> tuple[dict[str, object], str]:
 
 def build_search_text(metadata: dict[str, object], body: str) -> str:
     parts: list[str] = []
-    for key in ("title", "topic"):
+    for key in ("title", "domain", "topic"):
         value = metadata.get(key)
         if isinstance(value, str) and value:
             parts.append(value)
@@ -149,7 +161,7 @@ def _attach_backlinks(documents: list[dict]) -> None:
 
 def build_index(knowledge_root: Path) -> dict[str, object]:
     """Build a full index from scratch."""
-    documents = [parse_card(path) for path in iter_cards(knowledge_root)]
+    documents = [parse_card(path, knowledge_root=knowledge_root) for path in iter_cards(knowledge_root)]
     _attach_backlinks(documents)
     return {
         "knowledge_root": str(knowledge_root.as_posix()),
@@ -210,7 +222,7 @@ def build_index_incremental(
     new_docs: dict[str, dict] = {}
     for abs_key, path in path_by_abs.items():
         if abs_key in changed:
-            new_docs[abs_key] = parse_card(path)
+            new_docs[abs_key] = parse_card(path, knowledge_root=knowledge_root)
         elif abs_key in existing_docs:
             new_docs[abs_key] = existing_docs[abs_key]
         else:
@@ -248,33 +260,59 @@ def _build_manifest(payload: dict, knowledge_root: Path) -> dict[str, float]:
     return manifest
 
 
-def main() -> int:
-    args = parse_args()
+def write_index(
+    knowledge_root: Path,
+    index_output: Path,
+    *,
+    full_rebuild: bool = False,
+    build_embedding_index: bool = False,
+    embedding_output: Path | None = None,
+) -> dict[str, object]:
+    """Build and persist the local index.
 
-    if args.full_rebuild or not args.output.exists():
-        payload = build_index(args.knowledge_root)
-        manifest = _build_manifest(payload, args.knowledge_root)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        _save_manifest(manifest, args.output)
+    Returns the in-memory payload after writing both index and manifest.
+    This gives callers a fast in-process path instead of shelling out to a
+    separate Python process.
+    """
+    if full_rebuild or not index_output.exists():
+        payload = build_index(knowledge_root)
+        manifest = _build_manifest(payload, knowledge_root)
+        index_output.parent.mkdir(parents=True, exist_ok=True)
+        index_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _save_manifest(manifest, index_output)
     else:
-        payload = build_index_incremental(args.knowledge_root, args.output)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        payload = build_index_incremental(knowledge_root, index_output)
+        index_output.parent.mkdir(parents=True, exist_ok=True)
+        index_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    if args.build_embedding_index:
+    if build_embedding_index:
         try:
             from embedding_retrieve import build_embedding_index as build_emb
             emb_index = build_emb(payload.get("documents", []))
             valid = sum(1 for e in emb_index["embeddings"] if e)
             total = len(emb_index["doc_ids"])
-            args.embedding_output.parent.mkdir(parents=True, exist_ok=True)
-            args.embedding_output.write_text(
+            output_path = embedding_output or index_output.parent / "embeddings.json"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
                 json.dumps(emb_index, ensure_ascii=False) + "\n", encoding="utf-8"
             )
-            logger.info("Embedding index: %d/%d docs embedded → %s", valid, total, args.embedding_output)
+            logger.info("Embedding index: %d/%d docs embedded → %s", valid, total, output_path)
         except Exception as exc:
             logger.warning("embedding index build failed (%s), skipping", exc)
+
+    return payload
+
+
+def main() -> int:
+    args = parse_args()
+
+    write_index(
+        args.knowledge_root,
+        args.output,
+        full_rebuild=args.full_rebuild,
+        build_embedding_index=args.build_embedding_index,
+        embedding_output=args.embedding_output,
+    )
 
     return 0
 

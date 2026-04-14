@@ -70,8 +70,10 @@ class SlugifyTest(unittest.TestCase):
         self.assertEqual("note", slugify("", fallback="note"))
 
     def test_unicode(self) -> None:
-        result = slugify("QPE雷达降雨估计")
-        self.assertTrue(len(result) > 0)
+        self.assertEqual("qpe雷达降雨估计", slugify("QPE雷达降雨估计"))
+
+    def test_chinese_title(self) -> None:
+        self.assertEqual("如何建立供应链库存规划的基础框架", slugify("如何建立供应链库存规划的基础框架"))
 
     def test_leading_trailing_dashes(self) -> None:
         self.assertEqual("hello", slugify("---hello---"))
@@ -90,6 +92,9 @@ class SafeSlugTest(unittest.TestCase):
 
     def test_empty_input(self) -> None:
         self.assertEqual("untitled", safe_slug(""))
+
+    def test_preserves_chinese(self) -> None:
+        self.assertEqual("库存规划的核心框架-关键指标和学习路径是什么", safe_slug("库存规划的核心框架、关键指标和学习路径是什么？"))
 
 
 class LoadJsonTest(unittest.TestCase):

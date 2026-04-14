@@ -19,7 +19,7 @@ from mcp_server import query_knowledge, save_research, list_knowledge, capture_a
 # Force config to always resolve to lore-agent's own directories
 # regardless of cwd, so tests don't leak files into parent projects.
 _TEST_INDEX = ROOT / "indexes" / "local" / "index.json"
-_TEST_KNOWLEDGE = ROOT / "knowledge"
+_TEST_KNOWLEDGE = ROOT / "tests" / "fixtures"
 lore_config._config_cache = {
     "knowledge_dir": str(_TEST_KNOWLEDGE),
     "index_path": str(_TEST_INDEX),
@@ -29,9 +29,13 @@ lore_config._config_cache = {
 
 def _build_index() -> None:
     _TEST_INDEX.parent.mkdir(parents=True, exist_ok=True)
+    stale_marker = _TEST_INDEX.with_suffix(_TEST_INDEX.suffix + ".stale")
+    if stale_marker.exists():
+        stale_marker.unlink()
     subprocess.run(
         [sys.executable, str(SCRIPTS / "local_index.py"),
-         "--knowledge-root", str(ROOT / "tests" / "fixtures"),
+         "--knowledge-root", str(_TEST_KNOWLEDGE),
+         "--full-rebuild",
          "--output", str(_TEST_INDEX)],
         capture_output=True, text=True, cwd=ROOT,
     )

@@ -29,7 +29,10 @@ Configuration — add to .mcp.json in the project root:
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sys
+import time
 from pathlib import Path
 
 # Ensure scripts/ is importable
@@ -47,6 +50,8 @@ from close_knowledge_loop import reindex as _reindex
 from lore_config import get_knowledge_dir, get_index_path
 from local_retrieve import retrieve
 
+logger = logging.getLogger(__name__)
+
 try:
     from fastmcp import FastMCP
     mcp = FastMCP("lore")
@@ -56,6 +61,78 @@ except ImportError:
     mcp = None  # type: ignore[assignment]
     def tool(fn):  # type: ignore[misc]
         return fn
+
+
+def _stale_marker_path(index_path: Path) -> Path:
+    return index_path.with_suffix(index_path.suffix + ".stale")
+
+
+def _refresh_lock_path(index_path: Path) -> Path:
+    return index_path.with_suffix(index_path.suffix + ".lock")
+
+
+def _mark_index_stale(index_path: Path) -> None:
+    marker = _stale_marker_path(index_path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("stale\n", encoding="utf-8")
+
+
+def _clear_index_stale(index_path: Path) -> None:
+    marker = _stale_marker_path(index_path)
+    try:
+        marker.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _acquire_refresh_lock(lock_path: Path) -> bool:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    else:
+        os.close(fd)
+        return True
+
+
+def _release_refresh_lock(lock_path: Path) -> None:
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _ensure_index_ready() -> tuple[Path, bool, str | None]:
+    index_path = get_index_path()
+    marker = _stale_marker_path(index_path)
+    needs_refresh = marker.exists() or not index_path.exists()
+    if not needs_refresh:
+        return index_path, False, None
+
+    lock_path = _refresh_lock_path(index_path)
+    if not _acquire_refresh_lock(lock_path):
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if not lock_path.exists():
+                if not marker.exists() or index_path.exists():
+                    return index_path, True, None
+                break
+            time.sleep(0.05)
+        return index_path, True, "Index refresh is already in progress; retry the request in a moment."
+
+    try:
+        reindex_ok = _reindex(get_knowledge_dir(), index_path)
+        if reindex_ok:
+            _clear_index_stale(index_path)
+            return index_path, True, None
+
+        logger.warning("lazy reindex failed for %s", index_path)
+        if not index_path.exists():
+            return index_path, True, "Knowledge index not found and automatic refresh failed."
+        return index_path, True, "Automatic refresh failed; serving the last available index."
+    finally:
+        _release_refresh_lock(lock_path)
 
 
 @tool
@@ -72,13 +149,19 @@ def query_knowledge(query: str, limit: int = 5) -> str:
     if not isinstance(limit, int) or limit < 1 or limit > 50:
         return json.dumps({"error": "limit must be an integer between 1 and 50", "results": []})
 
-    if not get_index_path().exists():
+    index_path, refreshed, refresh_error = _ensure_index_ready()
+
+    if not index_path.exists():
         return json.dumps({
-            "error": "Knowledge index not found. Run local_index.py first.",
+            "error": refresh_error or "Knowledge index not found. Run local_index.py first.",
             "results": [],
         })
 
-    result = retrieve(query, get_index_path(), limit)
+    result = retrieve(query, index_path, limit)
+    if refresh_error:
+        result["warning"] = refresh_error
+    if refreshed:
+        result["index_refreshed"] = True
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
@@ -150,13 +233,14 @@ def save_research(query: str, answer_json: str) -> str:
     except Exception as e:
         return json.dumps({"error": f"Failed to write card: {e}"})
 
-    # Rebuild index
-    reindex_ok = _reindex(get_knowledge_dir(), get_index_path())
+    index_path = get_index_path()
+    _mark_index_stale(index_path)
 
     return json.dumps({
         "status": "ok",
         "card_path": str(card_path),
-        "reindexed": reindex_ok,
+        "reindexed": False,
+        "index_pending_refresh": True,
         "schema_warnings": warnings,
     }, ensure_ascii=False, indent=2)
 
@@ -174,9 +258,9 @@ def list_knowledge(topic: str | None = None) -> str:
         for char in ("..", "/", "\\"):
             if char in topic:
                 return json.dumps({"error": "topic must not contain path separators or traversal sequences", "cards": [], "total": 0})
-    index_path = get_index_path()
+    index_path, refreshed, refresh_error = _ensure_index_ready()
     if not index_path.exists():
-        return json.dumps({"cards": [], "total": 0, "error": "Index not found. Run local_index.py first."})
+        return json.dumps({"cards": [], "total": 0, "error": refresh_error or "Index not found. Run local_index.py first."})
 
     try:
         index_data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -189,10 +273,10 @@ def list_knowledge(topic: str | None = None) -> str:
             doc_topic = doc.get("topic", "")
             if doc_topic != topic and not doc_topic.endswith("/" + topic) and not doc_topic.startswith(topic + "/"):
                 continue
-            continue
         cards.append({
             "id": doc.get("doc_id", ""),
             "title": doc.get("title", ""),
+            "domain": doc.get("domain", ""),
             "topic": doc.get("topic", ""),
             "type": doc.get("type", ""),
             "path": doc.get("path", ""),
@@ -200,7 +284,12 @@ def list_knowledge(topic: str | None = None) -> str:
             "backlinks": doc.get("backlinks", []),
         })
 
-    return json.dumps({"cards": cards, "total": len(cards)}, ensure_ascii=False, indent=2)
+    payload = {"cards": cards, "total": len(cards)}
+    if refresh_error:
+        payload["warning"] = refresh_error
+    if refreshed:
+        payload["index_refreshed"] = True
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 @tool
@@ -246,13 +335,14 @@ def capture_answer(query: str, answer: str, tags: str = "") -> str:
     except Exception as e:
         return json.dumps({"error": f"Failed to write card: {e}"})
 
-    # Rebuild index
-    reindex_ok = _reindex(get_knowledge_dir(), get_index_path())
+    index_path = get_index_path()
+    _mark_index_stale(index_path)
 
     return json.dumps({
         "status": "ok",
         "card_path": str(card_path),
-        "reindexed": reindex_ok,
+        "reindexed": False,
+        "index_pending_refresh": True,
         "note": "Card created as draft. Verify and promote when confidence is confirmed.",
     }, ensure_ascii=False, indent=2)
 
@@ -313,12 +403,14 @@ def ingest_source(source: str, title: str = "", tags: str = "") -> str:
     except Exception as e:
         return json.dumps({"error": f"Failed to write card: {e}"})
 
-    reindex_ok = _reindex(get_knowledge_dir(), get_index_path())
+    index_path = get_index_path()
+    _mark_index_stale(index_path)
 
     return json.dumps({
         "status": "ok",
         "card_path": str(card_path),
-        "reindexed": reindex_ok,
+        "reindexed": False,
+        "index_pending_refresh": True,
         "source_type": "url" if is_url else "text",
         "title": auto_title,
     }, ensure_ascii=False, indent=2)
@@ -336,9 +428,9 @@ def build_graph() -> str:
     """
     from build_graph import build_graph_data, generate_html
 
-    index_path = get_index_path()
+    index_path, _refreshed, refresh_error = _ensure_index_ready()
     if not index_path.exists():
-        return json.dumps({"error": "Index not found. Run local_index.py first."})
+        return json.dumps({"error": refresh_error or "Index not found. Run local_index.py first."})
 
     graph_data = build_graph_data(index_path)
     output_path = ROOT / "graph.html"

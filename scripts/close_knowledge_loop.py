@@ -32,6 +32,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 from common import safe_slug, extract_entities
 from domain_router import infer_domain as _infer_domain
+from domain_router import infer_domain_decision as _infer_domain_decision
 from lore_config import get_knowledge_dir, get_index_path
 from local_retrieve import retrieve as bm25_retrieve
 
@@ -233,6 +234,25 @@ def _infer_card_type(query: str, answer_data: dict) -> str:
     return "knowledge"
 
 
+def _card_note_label(card_type: str) -> str:
+    """Return the human-readable note label for a card type."""
+    if card_type == "method":
+        return "Method Note"
+    return "Knowledge Note"
+
+
+def _card_id(card_type: str, slug: str) -> str:
+    """Return the canonical id for a generated card."""
+    prefix = "method" if card_type == "method" else "knowledge"
+    return f"{prefix}-{slug}"
+
+
+def _card_note_tag(card_type: str) -> str:
+    """Return the canonical note tag for a card type."""
+    prefix = "method" if card_type == "method" else "knowledge"
+    return f"{prefix}-note"
+
+
 def build_knowledge_card(
     query: str,
     answer_data: dict,
@@ -241,7 +261,10 @@ def build_knowledge_card(
     index_path: Path | None = None,
 ) -> Path:
     """Build a knowledge card from research evidence and structured answer."""
-    domain, output_dir = _infer_domain(query, knowledge_root)
+    routing = _infer_domain_decision(query, knowledge_root)
+    major_domain = str(routing["major_domain"])
+    topic = str(routing.get("subdomain", "")).strip()
+    output_dir = Path(str(routing["output_path"]))
     card_type = _infer_card_type(query, answer_data)
     slug = safe_slug(query)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -256,9 +279,13 @@ def build_knowledge_card(
     next_steps = answer_data.get("suggested_next_steps", [])
     expected_output = answer_data.get("expected_output", "")
     example = answer_data.get("example", "")
+    card_id = _card_id(card_type, slug)
+    note_label = _card_note_label(card_type)
 
     # Infer tags from query and domain
-    base_tags = ["research-note", domain]
+    base_tags = [_card_note_tag(card_type), major_domain]
+    if topic:
+        base_tags.append(topic)
     query_lower = query.lower()
     for keyword, tag in [
         ("xgboost", "xgboost"), ("random forest", "random-forest"),
@@ -291,12 +318,14 @@ def build_knowledge_card(
     # Build frontmatter
     lines = [
         "---",
-        f"id: research-{slug}",
-        f"title: Research Note — {query}",
+        f"id: {card_id}",
+        f"title: {note_label} — {query}",
         f"type: {card_type}",
-        f"topic: {domain}",
+        f"domain: {major_domain}",
         "tags:",
     ]
+    if topic:
+        lines.insert(len(lines) - 1, f"topic: {topic}")
     for tag in base_tags:
         lines.append(f"  - {tag}")
     if source_urls:
@@ -418,31 +447,27 @@ def build_knowledge_card(
 
     # Write to knowledge tree
     output_dir.mkdir(parents=True, exist_ok=True)
-    card_path = output_dir / f"research-{slug}.md"
+    card_path = output_dir / f"{card_id}.md"
     card_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Record in changelog
-    append_changelog(knowledge_root, "created", f"research-{slug}", f"type={card_type}, topic={domain}")
+    detail = f"type={card_type}, domain={major_domain}"
+    if topic:
+        detail += f", topic={topic}"
+    append_changelog(knowledge_root, "created", card_id, detail)
 
     return card_path
 
 
 def reindex(knowledge_root: Path, index_output: Path) -> bool:
     """Rebuild the local index."""
-    import subprocess
-    index_script = SCRIPTS / "local_index.py"
-    if not index_script.is_file():
-        import logging
-        logging.getLogger(__name__).warning("local_index.py not found at %s — skipping reindex", index_script)
+    try:
+        from local_index import write_index
+        write_index(knowledge_root, index_output)
+        return True
+    except Exception:
+        logger.exception("local index rebuild failed")
         return False
-    result = subprocess.run(
-        [sys.executable, str(index_script),
-         "--knowledge-root", str(knowledge_root),
-         "--output", str(index_output)],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
 
 
 def append_changelog(

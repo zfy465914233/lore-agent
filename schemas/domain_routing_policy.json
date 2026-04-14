@@ -1,0 +1,40 @@
+{
+  "major_domains": {
+    "operations-research": {
+      "label": "运筹学",
+      "description": "Operations research, supply chain optimization, inventory control, planning, scheduling, and quantitative decision methods.",
+      "aliases": ["operations research", "or", "运筹学", "优化", "optimization"],
+      "allow_new_subdomains": true,
+      "default_subdomain": "",
+      "subdomains": {
+        "inventory-planning": {
+          "label": "库存规划",
+          "description": "Inventory planning and control, including safety stock, reorder point, EOQ, service level, spare parts, and replenishment policies.",
+          "aliases": ["inventory planning", "inventory", "库存规划", "库存", "安全库存", "再订货点", "rop", "eoq", "service level", "备件", "spare parts"]
+        }
+      }
+    },
+    "llm": {
+      "label": "LLM",
+      "description": "Large language models, model architecture, training, inference, serving, evaluation, and systems.",
+      "aliases": ["llm", "large language model", "language model", "大语言模型", "语言模型"],
+      "allow_new_subdomains": true,
+      "default_subdomain": "",
+      "subdomains": {
+        "mixture-of-experts": {
+          "label": "Mixture of Experts",
+          "description": "Sparse expert models, routing, load balancing, expert parallelism, and MoE engineering tradeoffs.",
+          "aliases": ["moe", "mixture of experts", "专家混合", "专家模型", "routing", "路由", "load balancing", "负载均衡", "switch transformer", "gshard", "deepseekmoe", "mixtral"]
+        }
+      }
+    },
+    "general": {
+      "label": "通用",
+      "description": "Catch-all domain used only when no stable major domain applies.",
+      "aliases": ["general", "通用"],
+      "allow_new_subdomains": false,
+      "default_subdomain": "",
+      "subdomains": {}
+    }
+  }
+}

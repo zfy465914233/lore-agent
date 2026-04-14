@@ -104,11 +104,12 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
                     break
             self.assertIsNotNone(card_path, "Should find card path in log output")
             self.assertTrue(card_path.exists(), "Card should be written to knowledge tree")
+            self.assertEqual("test-loop-closing", card_path.parent.name)
 
             # Verify it's in the index
-            index = json.loads(self.index_path.read_text())
+            index = json.loads(self.index_path.read_text(encoding="utf-8"))
             doc_ids = [d["doc_id"] for d in index["documents"]]
-            self.assertIn("research-test-loop-closing-query", doc_ids)
+            self.assertIn("knowledge-test-loop-closing-query", doc_ids)
 
             # Clean up
             card_path.unlink()
@@ -152,7 +153,7 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
                     break
             self.assertIsNotNone(card_path, "Should find card path in log output")
             self.assertTrue(card_path.exists())
-            content = card_path.read_text()
+            content = card_path.read_text(encoding="utf-8")
 
             for section in [
                 "## Question", "## Answer", "## Supporting Claims",
@@ -207,17 +208,17 @@ class CloseKnowledgeLoopTest(unittest.TestCase):
 
 
 class AnswerSchemaTest(unittest.TestCase):
-    """Test the answer schema file and research-note template."""
+    """Test the answer schema file and knowledge note template."""
 
     def test_answer_schema_file_exists_and_is_valid_json(self) -> None:
         self.assertTrue(ANSWER_SCHEMA_PATH.exists(), "schemas/answer.schema.json must exist")
-        schema = json.loads(ANSWER_SCHEMA_PATH.read_text())
+        schema = json.loads(ANSWER_SCHEMA_PATH.read_text(encoding="utf-8"))
         self.assertIn("required", schema)
         self.assertIn("answer", schema["required"])
         self.assertIn("supporting_claims", schema["required"])
 
     def test_answer_schema_has_all_standard_fields(self) -> None:
-        schema = json.loads(ANSWER_SCHEMA_PATH.read_text())
+        schema = json.loads(ANSWER_SCHEMA_PATH.read_text(encoding="utf-8"))
         props = schema["properties"]
         for field in [
             "answer", "supporting_claims", "inferences",
@@ -227,7 +228,7 @@ class AnswerSchemaTest(unittest.TestCase):
 
     def test_knowledge_template_exists_and_has_sections(self) -> None:
         self.assertTrue(RESEARCH_NOTE_TEMPLATE.exists(), "knowledge.md template must exist")
-        content = RESEARCH_NOTE_TEMPLATE.read_text()
+        content = RESEARCH_NOTE_TEMPLATE.read_text(encoding="utf-8")
         for section in [
             "## Core Statement", "## Formal Detail", "## Supporting Evidence",
             "## Inferences", "## Uncertainty", "## Missing Evidence",

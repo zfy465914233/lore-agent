@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -84,7 +85,9 @@ def slugify(text: str, fallback: str = "untitled") -> str:
         text: Input text.
         fallback: Value returned when the result would be empty.
     """
-    normalized = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    normalized_text = unicodedata.normalize("NFKC", text).strip().lower()
+    normalized_text = re.sub(r"[^\w\s-]+", " ", normalized_text, flags=re.UNICODE)
+    normalized = re.sub(r"[_\s-]+", "-", normalized_text, flags=re.UNICODE).strip("-")
     return normalized or fallback
 
 
@@ -185,7 +188,7 @@ _CAPITALIZED_PHRASE = re.compile(
 )
 _BACKTICK_TERM = re.compile(r"`([^`]{2,40})`")
 _STOP_ENTITIES = {
-    "Research Note", "Supporting Claims", "Missing Evidence",
+    "Research Note", "Knowledge Note", "Method Note", "Supporting Claims", "Missing Evidence",
     "Suggested Next Steps", "Visual Aids", "Source Images",
     "Concrete Example", "Expected Output", "Question", "Answer",
     "Uncertainty", "Inferences", "See Also", "Key Findings",
