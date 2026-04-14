@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -30,13 +29,25 @@ def _detect_mcp_command() -> tuple[str, list[str]]:
     """Detect the best way to run the MCP server.
 
     Priority:
-      1. Use the fastmcp executable next to the active Python interpreter
-      2. Use fastmcp from PATH
-      3. uv run --with fastmcp fastmcp run
+      1. Use the active Python interpreter directly if it can import fastmcp
+      2. Use the fastmcp executable next to the active Python interpreter
+      3. Use fastmcp from PATH
+      4. uv run --with fastmcp fastmcp run
     """
+    try:
+        import fastmcp  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        return sys.executable, []
+
     local_fastmcp = Path(sys.executable).with_name("fastmcp")
     if local_fastmcp.exists() and os.access(local_fastmcp, os.X_OK):
         return str(local_fastmcp), ["run"]
+
+    local_fastmcp_exe = Path(sys.executable).with_name("fastmcp.exe")
+    if local_fastmcp_exe.exists() and os.access(local_fastmcp_exe, os.X_OK):
+        return str(local_fastmcp_exe), ["run"]
 
     if path_fastmcp := shutil.which("fastmcp"):
         return path_fastmcp, ["run"]
