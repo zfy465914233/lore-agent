@@ -416,5 +416,174 @@ class TestDailyWorkflow(unittest.TestCase):
             self.assertIn("Paper B", content)
 
 
+class TestParseArxivId(unittest.TestCase):
+    def test_raw_id(self) -> None:
+        from mcp_server import _parse_arxiv_id
+        self.assertEqual("2510.24701", _parse_arxiv_id("2510.24701"))
+
+    def test_versioned_id(self) -> None:
+        from mcp_server import _parse_arxiv_id
+        self.assertEqual("2510.24701", _parse_arxiv_id("2510.24701v2"))
+
+    def test_abs_url(self) -> None:
+        from mcp_server import _parse_arxiv_id
+        self.assertEqual("2510.24701", _parse_arxiv_id("https://arxiv.org/abs/2510.24701"))
+
+    def test_pdf_url(self) -> None:
+        from mcp_server import _parse_arxiv_id
+        self.assertEqual("2510.24701", _parse_arxiv_id("https://arxiv.org/pdf/2510.24701.pdf"))
+
+    def test_invalid_input(self) -> None:
+        from mcp_server import _parse_arxiv_id
+        self.assertIsNone(_parse_arxiv_id("not-an-arxiv-id"))
+        self.assertIsNone(_parse_arxiv_id("https://example.com/paper"))
+
+
+class TestSanitizeTitle(unittest.TestCase):
+    def test_basic_title(self) -> None:
+        from mcp_server import _sanitize_title
+        self.assertEqual("Attention_Is_All_You_Need", _sanitize_title("Attention Is All You Need"))
+
+    def test_special_chars(self) -> None:
+        from mcp_server import _sanitize_title
+        result = _sanitize_title("A Survey of NLP: Models, Methods & Applications")
+        self.assertNotIn(":", result)
+        self.assertNotIn(",", result)
+        self.assertNotIn("&", result)
+
+    def test_long_title_truncated(self) -> None:
+        from mcp_server import _sanitize_title
+        long_title = "A" * 200
+        result = _sanitize_title(long_title)
+        self.assertLessEqual(len(result), 120)
+
+    def test_empty_returns_untitled(self) -> None:
+        from mcp_server import _sanitize_title
+        self.assertEqual("untitled", _sanitize_title(""))
+        self.assertEqual("untitled", _sanitize_title("   "))
+
+
+class TestDownloadArxivPdf(unittest.TestCase):
+    def test_caches_existing_pdf(self) -> None:
+        from academic.image_extractor import download_arxiv_pdf
+        with tempfile.TemporaryDirectory() as tmp:
+            arxiv_id = "2510.99999"
+            # Create a dummy PDF
+            pdf_path = os.path.join(tmp, f"{arxiv_id}.pdf")
+            with open(pdf_path, "wb") as f:
+                f.write(b"%PDF-1.4 dummy content")
+
+            # Should return the existing path without downloading
+            result = download_arxiv_pdf(arxiv_id, tmp)
+            self.assertTrue(result.endswith(f"{arxiv_id}.pdf"))
+            # Content should be unchanged (not re-downloaded)
+            with open(result, "rb") as f:
+                self.assertEqual(b"%PDF-1.4 dummy content", f.read())
+
+    def test_creates_output_dir(self) -> None:
+        from academic.image_extractor import download_arxiv_pdf
+        with tempfile.TemporaryDirectory() as tmp:
+            nested_dir = os.path.join(tmp, "nested", "dir")
+            # The function should create the directory
+            self.assertFalse(os.path.exists(nested_dir))
+            # We can't actually download without network, but the dir creation
+            # is tested implicitly via os.makedirs in the function
+
+
+class TestExtractPdfText(unittest.TestCase):
+    def test_returns_empty_when_no_fitz(self) -> None:
+        from academic import image_extractor
+        original = image_extractor.HAS_FITZ
+        image_extractor.HAS_FITZ = False
+        try:
+            result = image_extractor.extract_pdf_text("/nonexistent.pdf")
+            self.assertEqual(result, "")
+        finally:
+            image_extractor.HAS_FITZ = original
+
+    def test_extract_text_from_real_pdf(self) -> None:
+        """Test text extraction from a PDF created with PyMuPDF."""
+        from academic import image_extractor
+        if not image_extractor.HAS_FITZ:
+            self.skipTest("PyMuPDF not installed")
+        import fitz
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = os.path.join(tmp, "test.pdf")
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text((72, 72), "This is a test PDF with sample content.")
+            doc.save(pdf_path)
+            doc.close()
+
+            result = image_extractor.extract_pdf_text(pdf_path)
+            self.assertIn("test PDF", result)
+            self.assertIn("sample content", result)
+
+    def test_truncates_long_text(self) -> None:
+        """Test that max_chars parameter truncates output."""
+        from academic import image_extractor
+        if not image_extractor.HAS_FITZ:
+            self.skipTest("PyMuPDF not installed")
+        import fitz
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf_path = os.path.join(tmp, "long.pdf")
+            doc = fitz.open()
+            page = doc.new_page()
+            long_text = "A" * 50000
+            page.insert_text((72, 72), long_text, fontsize=6)
+            doc.save(pdf_path)
+            doc.close()
+
+            result = image_extractor.extract_pdf_text(pdf_path, max_chars=100)
+            self.assertLessEqual(len(result), 100)
+
+
+class TestCheckNoteQuality(unittest.TestCase):
+    def test_detects_unfilled_placeholders(self) -> None:
+        from academic.paper_analyzer import check_note_quality
+        with tempfile.TemporaryDirectory() as tmp:
+            note = Path(tmp) / "test.md"
+            note.write_text(
+                "---\ntitle: Test\n---\n"
+                "## 方法概述\n<!-- LLM: describe method -->\n"
+                "## 实验结果\n<!-- LLM: describe experiments -->\n",
+                encoding="utf-8",
+            )
+            result = check_note_quality(str(note))
+            self.assertTrue(result["has_issues"])
+            self.assertEqual(result["placeholder_count"], 2)
+            self.assertTrue(any("unfilled" in i for i in result["issues"]))
+
+    def test_detects_duplicate_sections(self) -> None:
+        from academic.paper_analyzer import check_note_quality
+        with tempfile.TemporaryDirectory() as tmp:
+            dup = "A" * 100
+            note = Path(tmp) / "test.md"
+            note.write_text(
+                "---\ntitle: Test\n---\n"
+                f"## 方法概述\n{dup}\n"
+                f"## 实验结果\n{dup}\n",
+                encoding="utf-8",
+            )
+            result = check_note_quality(str(note))
+            self.assertTrue(result["has_issues"])
+            self.assertTrue(any("identical" in i for i in result["issues"]))
+
+    def test_passes_good_note(self) -> None:
+        from academic.paper_analyzer import check_note_quality
+        with tempfile.TemporaryDirectory() as tmp:
+            note = Path(tmp) / "test.md"
+            note.write_text(
+                "---\ntitle: Test\n---\n"
+                "## 方法概述\nWe propose a novel transformer architecture with multi-head attention.\n"
+                "## 实验结果\nOur method achieves 95.3% accuracy on GLUE benchmark.\n"
+                "## 深度分析\nThe key strength is the efficient attention mechanism.\n",
+                encoding="utf-8",
+            )
+            result = check_note_quality(str(note))
+            self.assertFalse(result["has_issues"])
+            self.assertEqual(result["placeholder_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

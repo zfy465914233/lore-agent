@@ -97,6 +97,16 @@ MCP configs are pre-configured:
 | `daily_recommend` | Daily paper recommendation workflow |
 | `link_paper_keywords` | Auto-link keywords as `[[wikilinks]]` in notes |
 
+### Recommended Workflow
+
+For best analysis quality, follow this order:
+
+1. **Download the paper**: `download_paper("2510.24701", title="Paper Title", domain="LLM")`
+2. **Extract images**: `extract_paper_images("2510.24701")` (auto-detects local PDF)
+3. **Deep analysis**: `analyze_paper(paper_json)` (auto-detects local PDF, extracts full text)
+
+> **Tip**: Downloading the PDF before analysis enables full-text extraction, producing high-quality notes with specific data, formulas, and experimental results. Without a local PDF, analysis relies on the abstract only.
+
 ## Configuration
 
 ### .scholar.json

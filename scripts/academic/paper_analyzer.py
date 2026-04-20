@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -816,3 +817,55 @@ def generate_note(
 
     logger.info("Generated note: %s", note_path)
     return note_path
+
+
+def check_note_quality(note_path: str) -> dict:
+    """Check a generated note for quality issues.
+
+    Detects unfilled LLM placeholders and duplicate content across
+    method/experiments/analysis sections.
+
+    Args:
+        note_path: Path to the markdown note file.
+
+    Returns:
+        Dict with 'has_issues', 'issues', and 'placeholder_count'.
+    """
+    content = Path(note_path).read_text(encoding="utf-8")
+    issues: list[str] = []
+
+    # Check for unfilled LLM placeholders
+    placeholder_count = len(re.findall(r"<!--\s*LLM:", content))
+    if placeholder_count > 0:
+        issues.append(f"Found {placeholder_count} unfilled <!-- LLM: --> placeholders")
+
+    # Extract method/experiments/analysis sections
+    section_names = [
+        "方法概述", "实验结果", "深度分析",
+        "Method Overview", "Experimental Results", "Deep Analysis",
+    ]
+    sections: dict[str, str] = {}
+    for name in section_names:
+        match = re.search(
+            rf"^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",
+            content,
+            re.MULTILINE | re.DOTALL,
+        )
+        if match:
+            sections[name] = match.group(1).strip()[:200]
+
+    # Compare section pairs for identical content
+    names = list(sections.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            s1, s2 = sections[names[i]], sections[names[j]]
+            if len(s1) > 50 and s1 == s2:
+                issues.append(
+                    f"Sections '{names[i]}' and '{names[j]}' are identical"
+                )
+
+    return {
+        "has_issues": len(issues) > 0,
+        "issues": issues,
+        "placeholder_count": placeholder_count,
+    }
