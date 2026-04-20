@@ -14,7 +14,7 @@
 Your question
     │
     ▼
-Online research (AI agent search + SearXNG + academic APIs)
+Online research (LLM web search + academic APIs)
     │
     ▼
 Structured synthesis (with citations, confidence, uncertainty)
@@ -65,9 +65,6 @@ pip install -r requirements.txt
 
 # Build the knowledge index
 python scripts/local_index.py --output indexes/local/index.json
-
-# (Optional) Start SearXNG for web research
-docker compose up -d
 ```
 
 MCP configs are pre-configured:
@@ -121,7 +118,6 @@ Copy `.env.example` to `.env` and configure:
 | `SCHOLAR_ACADEMIC` | No | Set to `1` to enable academic tools |
 | `S2_API_KEY` | No | Semantic Scholar API key ([get one free](https://api.semanticscholar.org/)) |
 | `LLM_API_KEY` | No | LLM API key for advanced synthesis pipeline |
-| `SEARXNG_BASE_URL` | No | SearXNG URL for web research (default: `http://localhost:8080`) |
 
 ## Project Structure
 
@@ -130,7 +126,6 @@ scholar-agent/
 ├── mcp_server.py              # MCP server (13 tools)
 ├── setup_mcp.py               # Embed into existing projects
 ├── pyproject.toml             # Package configuration
-├── docker-compose.yml         # SearXNG
 ├── .scholar.json               # Project & academic configuration
 ├── schemas/                   # Answer + evidence JSON schemas
 ├── scripts/

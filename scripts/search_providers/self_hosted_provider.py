@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus
@@ -14,32 +12,16 @@ from retry import retry_with_backoff
 from search_providers.base import ProviderResult, SearchCandidate, SearchProvider
 
 
-SEARXNG_BASE_URL = os.environ.get("SEARXNG_BASE_URL", "http://localhost:8080")
-
-
-class SelfHostedProvider(SearchProvider):
-    provider_name = "self_hosted"
+class AcademicProvider(SearchProvider):
+    provider_name = "academic"
 
     def search(self, query: str, limit: int | None = None) -> ProviderResult:
         if limit is not None and limit <= 0:
             return ProviderResult(provider=self.provider_name, query=query)
 
         raw_items: list[dict[str, Any]] = []
-        try:
-            raw_items.extend(search_searxng(query))
-        except RuntimeError:
-            pass
-
         candidates: list[SearchCandidate] = []
         seen_urls: set[str] = set()
-        candidates, seen_urls = self._extend_candidates(query, raw_items, candidates, seen_urls, limit)
-        if limit is not None and len(candidates) >= limit:
-            return ProviderResult(
-                provider=self.provider_name,
-                query=query,
-                candidates=candidates,
-                metadata={"source_count": len(raw_items)},
-            )
 
         raw_items = search_openalex(query)
         candidates, seen_urls = self._extend_candidates(query, raw_items, candidates, seen_urls, limit)
@@ -86,35 +68,6 @@ class SelfHostedProvider(SearchProvider):
             if limit is not None and len(candidates) >= limit:
                 break
         return candidates, seen_urls
-
-
-def search_searxng(query: str) -> list[dict[str, Any]]:
-    url = f"{SEARXNG_BASE_URL.rstrip('/')}/search?q={quote_plus(query)}&format=json"
-    request = Request(
-        url,
-        headers={
-            "User-Agent": "scholar-agent/1.0",
-            "X-Forwarded-For": "127.0.0.1",
-        }
-    )
-
-    def _do_search() -> list[dict[str, Any]]:
-        with urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        return payload.get("results", [])
-
-    try:
-        return retry_with_backoff(
-            _do_search,
-            max_retries=3,
-            base_delay=1.0,
-            retry_on=(HTTPError, URLError, OSError),
-        )
-    except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(
-            f"SearXNG request failed for query '{query}': {exc}. "
-            "If the container is not running, start it with 'docker compose up -d searxng' in the optimizer directory."
-        ) from exc
 
 
 def search_openalex(query: str) -> list[dict[str, Any]]:
@@ -177,5 +130,3 @@ def search_semanticscholar(query: str) -> list[dict[str, Any]]:
         )
     except (HTTPError, URLError, OSError, json.JSONDecodeError):
         return []
-
-

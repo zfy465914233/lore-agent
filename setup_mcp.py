@@ -93,6 +93,9 @@ def setup_claude_code(parent_root: Path, scholar_dir: Path) -> None:
     config["mcpServers"]["scholar-agent"] = {
         "command": cmd,
         "args": base_args + [f"{scholar_relative}/mcp_server.py"],
+        "env": {
+            "SCHOLAR_ACADEMIC": "1",
+        },
     }
 
     mcp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -119,6 +122,9 @@ def setup_vscode(parent_root: Path, scholar_dir: Path) -> None:
         "type": "stdio",
         "command": cmd,
         "args": base_args + [f"{scholar_relative}/mcp_server.py"],
+        "env": {
+            "SCHOLAR_ACADEMIC": "1",
+        },
     }
 
     mcp_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

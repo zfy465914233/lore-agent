@@ -1,7 +1,7 @@
 """Minimal research harness runtime for evidence-driven discovery.
 
 This script turns the repo's instruction-only workflow into an executable
-pipeline: formulate queries, search SearXNG, fetch content, cache results,
+pipeline: formulate queries, search academic APIs, fetch content, cache results,
 build evidence objects, validate them, and emit structured JSON.
 """
 
@@ -28,11 +28,10 @@ from common import now_iso
 from retry import retry_with_backoff
 from search_pipeline import run_search_pipeline
 from search_providers.base import SearchCandidate, SearchProvider
-from search_providers.self_hosted_provider import SelfHostedProvider
+from search_providers.self_hosted_provider import AcademicProvider
 
 logger = logging.getLogger(__name__)
 
-SEARXNG_BASE_URL = os.environ.get("SEARXNG_BASE_URL", "http://localhost:8080")
 MAX_FETCH_CHARS = 12000
 BLOCKED_FETCH_DOMAINS = {
     "sciencedirect.com",
@@ -104,7 +103,7 @@ class TextExtractor(HTMLParser):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run a local evidence-first discovery workflow against SearXNG.",
+        description="Run a local evidence-first discovery workflow against academic APIs.",
     )
     parser.add_argument("query", help="Research topic or question")
     parser.add_argument(
@@ -180,7 +179,7 @@ def run_discovery(
 ) -> list[dict[str, Any]]:
     default_limit = {"quick": 3, "medium": 6, "deep": 10}[depth]
     max_items = limit or default_limit
-    prov = provider or SelfHostedProvider()
+    prov = provider or AcademicProvider()
 
     # Expand queries based on depth for broader recall
     query_variants = formulate_queries(query, depth)
@@ -596,7 +595,7 @@ def run_multi_perspective(
     Each evidence item is tagged with a 'perspective' field.
     """
     active = perspectives or list(PERSPECTIVES.keys())
-    prov = provider or SelfHostedProvider()
+    prov = provider or AcademicProvider()
 
     def _run_one(perspective: str) -> tuple[str, list[dict[str, Any]]]:
         suffix = PERSPECTIVES.get(perspective, perspective)
