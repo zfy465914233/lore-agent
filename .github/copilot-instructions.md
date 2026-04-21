@@ -6,7 +6,7 @@ This is Scholar Agent — a knowledge flywheel MCP server with an academic paper
 
 ## Core Constraints
 
-1. Backend capabilities (search, crawl) run locally via SearXNG and Crawl4AI — zero API keys needed for the backend layer. Frontend reasoning uses online models (Claude, Copilot) which require their own API access.
+1. Backend academic search runs via public APIs (OpenAlex, Semantic Scholar, DBLP) — zero API keys needed for the backend layer. General web search is delegated to the LLM's built-in search capability. Frontend reasoning uses online models (Claude, Copilot) which require their own API access.
 2. No local LLM is needed.
 3. Evidence-first. Never present conclusions without citing sources.
 4. All outputs must include temporal context — when was the evidence retrieved, when was it published.

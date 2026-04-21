@@ -18,7 +18,7 @@ Scholar Agent 给它加了一个**知识飞轮**：
 你的提问
     │
     ▼
-在线研究（AI agent 搜索 + SearXNG + 学术 API）
+在线研究（LLM 网络搜索 + 学术 API）
     │
     ▼
 结构化合成（带引用来源、置信度、不确定性标注）
@@ -69,9 +69,6 @@ pip install -r requirements.txt
 
 # 构建知识索引
 python scripts/local_index.py --output indexes/local/index.json
-
-# （可选）启动 SearXNG 用于在线研究
-docker compose up -d
 ```
 
 MCP 配置已预置，启动即用：
@@ -119,7 +116,6 @@ MCP 配置已预置，启动即用：
 | `SCHOLAR_ACADEMIC` | 否 | 设为 `1` 启用学术工具 |
 | `S2_API_KEY` | 否 | Semantic Scholar API key（[免费申请](https://api.semanticscholar.org/)） |
 | `LLM_API_KEY` | 否 | LLM API key（用于高级合成管线） |
-| `SEARXNG_BASE_URL` | 否 | SearXNG 地址（默认 `http://localhost:8080`） |
 
 ## 项目结构
 
@@ -128,7 +124,6 @@ scholar-agent/
 ├── mcp_server.py              # MCP 服务器（13 个工具）
 ├── setup_mcp.py               # 嵌入已有项目
 ├── pyproject.toml             # 包配置
-├── docker-compose.yml         # SearXNG
 ├── .scholar.json               # 项目与学术配置
 ├── schemas/                   # 答案 + 证据 JSON schema
 ├── scripts/

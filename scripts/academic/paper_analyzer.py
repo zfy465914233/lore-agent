@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,9 @@ def _format_image_refs(images: list[dict[str, Any]] | None, section: str) -> str
         fname = img.get("filename", "")
         caption = img.get("caption", "")
         if fname:
-            lines.append(f"![[images/{fname}]]")
+            lines.append(f"![[images/{fname}|800]]")
             if caption:
-                lines.append(f"*{caption}*")
+                lines.append(f"> {caption}")
             lines.append("")
     return "\n".join(lines)
 
@@ -518,6 +519,7 @@ def _generate_zh_note(
     pdf_url: str = "",
     related_papers: list[str] | None = None,
     images: list[dict[str, Any]] | None = None,
+    local_pdf_rel: str = "",
 ) -> str:
     """Generate Chinese deep-analysis markdown note."""
     # --- Tags ---
@@ -537,7 +539,10 @@ def _generate_zh_note(
 
     # --- Links ---
     links = f"[arXiv](https://arxiv.org/abs/{arxiv_id})" if arxiv_id else ""
-    if pdf_url:
+    # Prefer local PDF link over online URL
+    if local_pdf_rel:
+        links += f" | [PDF]({local_pdf_rel})" if links else f"[PDF]({local_pdf_rel})"
+    elif pdf_url:
         links += f" | [PDF]({pdf_url})" if links else f"[PDF]({pdf_url})"
     elif arxiv_id:
         links += f" | [PDF](https://arxiv.org/pdf/{arxiv_id})"
@@ -623,6 +628,9 @@ status: skeleton
     ext_lines = "\n## 外部资源\n\n"
     if arxiv_id:
         ext_lines += f"- [arXiv](https://arxiv.org/abs/{arxiv_id})\n"
+    if local_pdf_rel:
+        ext_lines += f"- [本地PDF]({local_pdf_rel})\n"
+    elif arxiv_id:
         ext_lines += f"- [PDF](https://arxiv.org/pdf/{arxiv_id})\n"
     ext_lines += "<!-- LLM: 补充代码仓库、数据集、项目主页等链接 -->\n"
     parts.append(ext_lines)
@@ -644,6 +652,7 @@ def _generate_en_note(
     pdf_url: str = "",
     related_papers: list[str] | None = None,
     images: list[dict[str, Any]] | None = None,
+    local_pdf_rel: str = "",
 ) -> str:
     """Generate English deep-analysis markdown note."""
     # --- Tags ---
@@ -662,7 +671,10 @@ def _generate_en_note(
 
     # --- Links ---
     links = f"[arXiv](https://arxiv.org/abs/{arxiv_id})" if arxiv_id else ""
-    if pdf_url:
+    # Prefer local PDF link over online URL
+    if local_pdf_rel:
+        links += f" | [PDF]({local_pdf_rel})" if links else f"[PDF]({local_pdf_rel})"
+    elif pdf_url:
         links += f" | [PDF]({pdf_url})" if links else f"[PDF]({pdf_url})"
     elif arxiv_id:
         links += f" | [PDF](https://arxiv.org/pdf/{arxiv_id})"
@@ -748,6 +760,9 @@ status: skeleton
     ext_lines = "\n## External Resources\n\n"
     if arxiv_id:
         ext_lines += f"- [arXiv](https://arxiv.org/abs/{arxiv_id})\n"
+    if local_pdf_rel:
+        ext_lines += f"- [Local PDF]({local_pdf_rel})\n"
+    elif arxiv_id:
         ext_lines += f"- [PDF](https://arxiv.org/pdf/{arxiv_id})\n"
     ext_lines += "<!-- LLM: Add code repo, dataset, project page links -->\n"
     parts.append(ext_lines)
@@ -764,6 +779,7 @@ def generate_note(
     output_dir: str,
     language: str = "zh",
     images: list[dict[str, Any]] | None = None,
+    local_pdf_path: str = "",
 ) -> str:
     """Generate a deep-analysis markdown note file for a paper.
 
@@ -773,6 +789,8 @@ def generate_note(
         language: "zh" or "en".
         images: Optional list of extracted images, each dict with
             'filename', 'caption', 'section' keys.
+        local_pdf_path: Path to local PDF file. If provided, PDF link
+            in the note will point to this local file.
 
     Returns:
         Path to the generated note file.
@@ -793,15 +811,29 @@ def generate_note(
     pdf_url = paper.get("pdf_url", "")
     related = paper.get("related_papers")
 
+    # Compute relative path from note file to local PDF
+    local_pdf_rel = ""
+    if local_pdf_path and os.path.isfile(local_pdf_path):
+        # Note will be at output_dir/domain/filename.md
+        filename = title_to_filename(title)
+        safe_domain = domain.strip("/\\").replace("..", "") or "Other"
+        note_path_abs = os.path.join(output_dir, safe_domain, f"{filename}.md")
+        try:
+            local_pdf_rel = os.path.relpath(local_pdf_path, os.path.dirname(note_path_abs))
+        except ValueError:
+            local_pdf_rel = local_pdf_path  # fallback to absolute on cross-drive
+
     if language == "zh":
         content = _generate_zh_note(
             paper_id, title, authors, domain, date, scores, abstract,
             arxiv_id, affiliations, conference, pdf_url, related, images,
+            local_pdf_rel=local_pdf_rel,
         )
     else:
         content = _generate_en_note(
             paper_id, title, authors, domain, date, scores, abstract,
             arxiv_id, affiliations, conference, pdf_url, related, images,
+            local_pdf_rel=local_pdf_rel,
         )
 
     filename = title_to_filename(title)
@@ -816,3 +848,55 @@ def generate_note(
 
     logger.info("Generated note: %s", note_path)
     return note_path
+
+
+def check_note_quality(note_path: str) -> dict:
+    """Check a generated note for quality issues.
+
+    Detects unfilled LLM placeholders and duplicate content across
+    method/experiments/analysis sections.
+
+    Args:
+        note_path: Path to the markdown note file.
+
+    Returns:
+        Dict with 'has_issues', 'issues', and 'placeholder_count'.
+    """
+    content = Path(note_path).read_text(encoding="utf-8")
+    issues: list[str] = []
+
+    # Check for unfilled LLM placeholders
+    placeholder_count = len(re.findall(r"<!--\s*LLM:", content))
+    if placeholder_count > 0:
+        issues.append(f"Found {placeholder_count} unfilled <!-- LLM: --> placeholders")
+
+    # Extract method/experiments/analysis sections
+    section_names = [
+        "方法概述", "实验结果", "深度分析",
+        "Method Overview", "Experimental Results", "Deep Analysis",
+    ]
+    sections: dict[str, str] = {}
+    for name in section_names:
+        match = re.search(
+            rf"^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",
+            content,
+            re.MULTILINE | re.DOTALL,
+        )
+        if match:
+            sections[name] = match.group(1).strip()[:200]
+
+    # Compare section pairs for identical content
+    names = list(sections.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            s1, s2 = sections[names[i]], sections[names[j]]
+            if len(s1) > 50 and s1 == s2:
+                issues.append(
+                    f"Sections '{names[i]}' and '{names[j]}' are identical"
+                )
+
+    return {
+        "has_issues": len(issues) > 0,
+        "issues": issues,
+        "placeholder_count": placeholder_count,
+    }

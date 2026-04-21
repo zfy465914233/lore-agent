@@ -240,7 +240,7 @@ def _search_semantic_scholar_raw(
 
 
 # ----------------------------------------------------------------------
-# Candidate list builder (mirrors SelfHostedProvider pattern)
+# Candidate list builder (mirrors AcademicProvider pattern)
 # ----------------------------------------------------------------------
 
 def _extend_candidates(

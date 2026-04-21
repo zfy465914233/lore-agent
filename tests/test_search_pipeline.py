@@ -13,7 +13,7 @@ if str(SCRIPTS) not in sys.path:
 
 from search_providers.base import ProviderResult, SearchCandidate
 from normalizers.evidence_normalizer import normalize_candidate
-from search_providers.self_hosted_provider import SelfHostedProvider
+from search_providers.self_hosted_provider import AcademicProvider
 from search_pipeline import (
     canonicalize_url,
     candidate_identity,
@@ -22,7 +22,7 @@ from search_pipeline import (
 import research_harness
 
 
-class SelfHostedProviderTest(unittest.TestCase):
+class AcademicProviderTest(unittest.TestCase):
     def test_canonicalize_url_normalizes_case_and_fragment(self) -> None:
         self.assertEqual(
             "https://example.com/path",
@@ -121,69 +121,57 @@ class SelfHostedProviderTest(unittest.TestCase):
         self.assertFalse(provenance.get("additionalProperties", True))
         self.assertNotIn("provenance", schema.get("required", []))
 
-    def test_self_hosted_provider_returns_provider_result_shaped_output(self) -> None:
-        provider = SelfHostedProvider()
+    def test_academic_provider_returns_provider_result_shaped_output(self) -> None:
+        provider = AcademicProvider()
         with (
-            patch("search_providers.self_hosted_provider.search_searxng") as mock_searxng,
             patch("search_providers.self_hosted_provider.search_openalex") as mock_openalex,
             patch("search_providers.self_hosted_provider.search_semanticscholar") as mock_semanticscholar,
         ):
-            mock_searxng.return_value = [
+            mock_openalex.return_value = [
                 {
                     "url": "https://example.com/a",
-                    "title": "Search result",
-                    "content": "Search snippet",
+                    "title": "Paper result A",
+                    "content": "Paper snippet",
                     "publishedDate": "2026-01-01",
                 }
             ]
-            mock_openalex.return_value = [
+            mock_semanticscholar.return_value = [
                 {
                     "url": "https://example.org/b",
-                    "title": "Paper result",
+                    "title": "Paper result B",
                     "content": "",
                     "publishedDate": "2025-12-31",
                 }
             ]
-            mock_semanticscholar.return_value = []
 
             result = provider.search("markov chain", limit=2)
 
         self.assertIsInstance(result, ProviderResult)
-        self.assertEqual("self_hosted", result.provider)
+        self.assertEqual("academic", result.provider)
         self.assertEqual("markov chain", result.query)
         self.assertEqual(2, len(result.candidates))
         self.assertTrue(all(isinstance(candidate, SearchCandidate) for candidate in result.candidates))
         self.assertEqual("markov chain", result.candidates[0].query)
         self.assertEqual("https://example.com/a", result.candidates[0].url)
-        self.assertEqual("Search result", result.candidates[0].title)
-        self.assertEqual("Search snippet", result.candidates[0].snippet)
+        self.assertEqual("Paper result A", result.candidates[0].title)
+        self.assertEqual("Paper snippet", result.candidates[0].snippet)
         self.assertEqual("2026-01-01", result.candidates[0].published_at)
         self.assertEqual("https://example.org/b", result.candidates[1].url)
-        mock_searxng.assert_called_once_with("markov chain")
         mock_openalex.assert_called_once_with("markov chain")
-        mock_semanticscholar.assert_not_called()
+        mock_semanticscholar.assert_called_once_with("markov chain")
 
-    def test_self_hosted_provider_stops_after_reaching_limit(self) -> None:
-        provider = SelfHostedProvider()
+    def test_academic_provider_stops_after_reaching_limit(self) -> None:
+        provider = AcademicProvider()
         with (
-            patch("search_providers.self_hosted_provider.search_searxng") as mock_searxng,
             patch("search_providers.self_hosted_provider.search_openalex") as mock_openalex,
             patch("search_providers.self_hosted_provider.search_semanticscholar") as mock_semanticscholar,
         ):
-            mock_searxng.return_value = [
-                {
-                    "url": "https://example.com/a",
-                    "title": "Search result",
-                    "content": "Search snippet",
-                    "publishedDate": "2026-01-01",
-                }
-            ]
             mock_openalex.return_value = [
                 {
-                    "url": "https://example.org/b",
+                    "url": "https://example.com/a",
                     "title": "Paper result",
-                    "content": "",
-                    "publishedDate": "2025-12-31",
+                    "content": "Paper snippet",
+                    "publishedDate": "2026-01-01",
                 }
             ]
             mock_semanticscholar.return_value = [
@@ -198,8 +186,7 @@ class SelfHostedProviderTest(unittest.TestCase):
             result = provider.search("markov chain", limit=1)
 
         self.assertEqual(1, len(result.candidates))
-        mock_searxng.assert_called_once_with("markov chain")
-        mock_openalex.assert_not_called()
+        mock_openalex.assert_called_once_with("markov chain")
         mock_semanticscholar.assert_not_called()
 
     def test_collect_candidates_uses_injected_provider(self) -> None:
@@ -226,7 +213,7 @@ class SelfHostedProviderTest(unittest.TestCase):
                 )
 
         fake_provider = FakeProvider()
-        with patch.object(research_harness, "SelfHostedProvider", side_effect=AssertionError("should not instantiate")):
+        with patch.object(research_harness, "AcademicProvider", side_effect=AssertionError("should not instantiate")):
             candidates = research_harness.collect_candidates(["markov chain"], fake_provider)
 
         self.assertEqual(1, len(candidates))

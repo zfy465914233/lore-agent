@@ -463,6 +463,56 @@ def build_graph() -> str:
 # Academic tools (controlled by SCHOLAR_ACADEMIC env var)
 # ---------------------------------------------------------------------------
 
+import re as _re
+
+
+def _parse_arxiv_id(paper_id: str) -> str | None:
+    """Extract arXiv ID from various formats. Returns None if not an arXiv ID."""
+    text = paper_id.strip()
+    match = _re.search(r"(\d{4}\.\d+)", text)
+    if match:
+        return match.group(1)
+    match = _re.search(r"([a-z-]+\.\w+/\d+)", text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _sanitize_title(title: str) -> str:
+    """Convert a paper title to a filesystem-safe directory/filename."""
+    import unicodedata
+    # Normalize unicode, replace common separators
+    s = unicodedata.normalize("NFKC", title.strip())
+    # Replace colons, slashes, and other problematic chars
+    s = _re.sub(r"[:/\\?*|\"<>,;&%#@!()]", " ", s)
+    # Collapse whitespace and strip
+    s = _re.sub(r"\s+", " ", s).strip()
+    # Replace spaces with underscores
+    s = s.replace(" ", "_")
+    # Truncate to reasonable length
+    if len(s) > 120:
+        s = s[:120].rstrip("_")
+    return s or "untitled"
+
+
+def _find_local_pdf(arxiv_id: str, title: str = "") -> str | None:
+    """Search paper-notes/ for an existing local PDF by title or arXiv ID."""
+    paper_notes_dir = get_knowledge_dir().parent / "paper-notes"
+    if not paper_notes_dir.exists():
+        return None
+    # Search by sanitized title first
+    if title:
+        safe = _sanitize_title(title)
+        candidate = paper_notes_dir.rglob(f"{safe}/{safe}.pdf")
+        for match in candidate:
+            return str(match)
+    # Fallback: search by arXiv ID
+    if arxiv_id:
+        for match in paper_notes_dir.rglob(f"{arxiv_id}.pdf"):
+            return str(match)
+    return None
+
+
 if SCHOLAR_ACADEMIC:
 
     @tool
@@ -634,6 +684,7 @@ if SCHOLAR_ACADEMIC:
         language: str = "zh",
         all_papers_json: str = "",
         images_json: str = "",
+        pdf_path: str = "",
     ) -> str:
         """Analyze a paper and generate a structured deep-analysis markdown note.
 
@@ -656,6 +707,8 @@ if SCHOLAR_ACADEMIC:
                 finding related papers via wiki-links.
             images_json: Optional JSON array of image dicts (from extract_paper_images)
                 with 'filename', 'section' keys. Section values: 'framework', 'results'.
+            pdf_path: Optional local PDF file path. If omitted and paper_json contains
+                an arxiv_id, auto-detects the local PDF in paper-notes/.
         """
         from academic.paper_analyzer import generate_note
         from academic.note_linker import find_related_papers
@@ -667,6 +720,15 @@ if SCHOLAR_ACADEMIC:
 
         if not paper.get("title"):
             return json.dumps({"error": "paper_json must contain at least a 'title' field"})
+
+        # Auto-detect local PDF if pdf_path not provided
+        detected_pdf = None
+        if not pdf_path or not pdf_path.strip():
+            arxiv_id = paper.get("arxiv_id", "")
+            paper_title = paper.get("title", "")
+            detected_pdf = _find_local_pdf(arxiv_id, title=paper_title)
+        else:
+            detected_pdf = pdf_path.strip()
 
         # Resolve output directory
         if not output_dir or not output_dir.strip():
@@ -704,10 +766,41 @@ if SCHOLAR_ACADEMIC:
                 images = None
 
         try:
-            note_path = generate_note(paper, str(out_path), language=language, images=images)
+            note_path = generate_note(
+                paper, str(out_path), language=language, images=images,
+                local_pdf_path=detected_pdf or "",
+            )
         except Exception as e:
             logger.exception("analyze_paper failed")
             return json.dumps({"error": f"Failed to generate note: {e}"})
+
+        # Extract full text from local PDF if available
+        pdf_text = ""
+        if detected_pdf and os.path.isfile(detected_pdf):
+            try:
+                from academic.image_extractor import extract_pdf_text
+                pdf_text = extract_pdf_text(detected_pdf)
+            except Exception:
+                pdf_text = ""
+
+        # Quality check on the generated note
+        quality_check = {"has_issues": False, "issues": [], "placeholder_count": 0}
+        try:
+            from academic.paper_analyzer import check_note_quality
+            quality_check = check_note_quality(note_path)
+        except Exception:
+            pass
+
+        # Build instructions for the caller about filling placeholders
+        placeholder_count = quality_check.get("placeholder_count", 0)
+        instructions = None
+        if placeholder_count > 0 and pdf_text:
+            instructions = (
+                "MUST fill all <!-- LLM: --> placeholders using pdf_text before showing to user. "
+                f"Note has {placeholder_count} placeholders. "
+                "Use Write tool to replace the skeleton note with fully filled content. "
+                "See SKILL.md '内容填充规则' section for detailed rules."
+            )
 
         return json.dumps({
             "status": "ok",
@@ -715,11 +808,96 @@ if SCHOLAR_ACADEMIC:
             "title": paper.get("title", ""),
             "language": language,
             "has_related_links": bool(paper.get("related_papers")),
+            "pdf_path": detected_pdf,
+            "has_full_text": bool(pdf_text),
+            "pdf_text": pdf_text,
+            "quality_check": quality_check,
+            "instructions": instructions,
+        }, ensure_ascii=False, indent=2)
+
+    @tool
+    def download_paper(
+        paper_id: str,
+        title: str = "",
+        domain: str = "",
+        output_dir: str = "",
+    ) -> str:
+        """Download a paper PDF to local storage.
+
+        Downloads the arXiv PDF and saves it to paper-notes/{domain}/{title}/
+        alongside analysis notes and extracted figures. After downloading, import
+        the PDF into Zotero manually for reference management.
+
+        Args:
+            paper_id: arXiv ID (e.g. "2510.24701") or arXiv URL
+                (e.g. "https://arxiv.org/abs/2510.24701").
+            title: Paper title, used as the folder/filename. If omitted, falls back
+                to the arXiv ID as the folder name.
+            domain: Optional research domain subfolder (e.g. "Bayesian-Optimization").
+                If omitted, the PDF is stored directly under paper-notes/{title}/.
+            output_dir: Override the output directory. If provided, domain and title are ignored.
+        """
+        arxiv_id = _parse_arxiv_id(paper_id)
+        if not arxiv_id:
+            return json.dumps({
+                "error": f"Could not parse arXiv ID from '{paper_id}'. "
+                         "Expected format: '2510.24701', 'https://arxiv.org/abs/2510.24701', etc.",
+                "pdf_path": None,
+            })
+
+        # Determine folder name: title (sanitized) or arXiv ID
+        folder_name = _sanitize_title(title) if title and title.strip() else arxiv_id
+        pdf_filename = f"{folder_name}.pdf"
+
+        if output_dir and output_dir.strip():
+            paper_dir = Path(output_dir.strip())
+        elif domain and domain.strip():
+            for char in ("..", "/", "\\"):
+                if char in domain:
+                    return json.dumps({"error": "domain must not contain path separators", "pdf_path": None})
+            paper_dir = get_knowledge_dir().parent / "paper-notes" / domain.strip() / folder_name
+        else:
+            paper_dir = get_knowledge_dir().parent / "paper-notes" / folder_name
+
+        pdf_path = paper_dir / pdf_filename
+
+        if pdf_path.exists():
+            return json.dumps({
+                "status": "cached",
+                "pdf_path": str(pdf_path),
+                "arxiv_id": arxiv_id,
+                "title": title,
+                "size_bytes": pdf_path.stat().st_size,
+                "zotero_note": "PDF already downloaded. Import into Zotero if not done yet.",
+            }, ensure_ascii=False, indent=2)
+
+        paper_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            from academic.image_extractor import download_arxiv_pdf
+            # download_arxiv_pdf saves as {arxiv_id}.pdf, rename to title-based name
+            local_path = download_arxiv_pdf(arxiv_id, str(paper_dir))
+            if local_path and title and title.strip():
+                final_path = paper_dir / pdf_filename
+                Path(local_path).rename(final_path)
+                local_path = str(final_path)
+        except Exception as e:
+            logger.exception("download_paper failed")
+            return json.dumps({"error": str(e), "pdf_path": None, "arxiv_id": arxiv_id})
+
+        return json.dumps({
+            "status": "ok",
+            "pdf_path": local_path,
+            "arxiv_id": arxiv_id,
+            "title": title,
+            "size_bytes": Path(local_path).stat().st_size,
+            "zotero_note": "PDF downloaded. Please import into Zotero: drag the PDF file into your Zotero library.",
         }, ensure_ascii=False, indent=2)
 
     @tool
     def extract_paper_images(
         paper_id: str,
+        title: str = "",
         output_dir: str = "",
         pdf_path: str = "",
     ) -> str:
@@ -731,8 +909,9 @@ if SCHOLAR_ACADEMIC:
 
         Args:
             paper_id: arXiv ID (e.g. "2401.12345").
+            title: Paper title. If provided, used to locate the local paper folder.
             output_dir: Directory for extracted images. Defaults to
-                paper-notes/{paper_id}/images/ under the knowledge root.
+                paper-notes/{title_or_id}/images/ under the knowledge root.
             pdf_path: Optional local PDF file path for extraction fallback.
         """
         from academic.image_extractor import extract_paper_images as _extract
@@ -743,7 +922,14 @@ if SCHOLAR_ACADEMIC:
         paper_id = paper_id.strip()
 
         if not output_dir or not output_dir.strip():
-            output_dir = str(get_knowledge_dir().parent / "paper-notes" / paper_id / "images")
+            folder_name = _sanitize_title(title) if title and title.strip() else paper_id
+            output_dir = str(get_knowledge_dir().parent / "paper-notes" / folder_name / "images")
+
+        # Auto-detect local PDF if pdf_path not provided
+        if not pdf_path or not pdf_path.strip():
+            local_pdf = _find_local_pdf(paper_id, title=title)
+            if local_pdf:
+                pdf_path = local_pdf
 
         try:
             images = _extract(paper_id, output_dir, pdf_path or None)

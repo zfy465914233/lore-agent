@@ -70,6 +70,70 @@ def _download_arxiv_source(arxiv_id: str, temp_dir: str) -> bool:
         return False
 
 
+def download_arxiv_pdf(arxiv_id: str, output_dir: str) -> str:
+    """Download arXiv PDF to output_dir/{arxiv_id}.pdf. Returns local path.
+
+    If the file already exists locally, returns the path without re-downloading.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    dest = os.path.join(output_dir, f"{arxiv_id}.pdf")
+
+    # Return existing file without re-downloading
+    if os.path.exists(dest) and os.path.getsize(dest) > 0:
+        logger.info("Using cached PDF: %s", dest)
+        return os.path.abspath(dest)
+
+    pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    logger.info("Downloading arXiv PDF: %s", pdf_url)
+    headers = {"User-Agent": "scholar-agent/1.0 (research tool)"}
+
+    try:
+        if HAS_REQUESTS:
+            resp = _requests.get(pdf_url, timeout=120, headers=headers)
+            if resp.status_code != 200:
+                raise RuntimeError(f"arXiv returned HTTP {resp.status_code}")
+            content = resp.content
+        else:
+            req = urllib_request.Request(pdf_url, headers=headers)
+            resp = urllib_request.urlopen(req, timeout=120)
+            content = resp.read()
+
+        with open(dest, "wb") as f:
+            f.write(content)
+        return os.path.abspath(dest)
+    except Exception as e:
+        # Clean up partial file
+        if os.path.exists(dest):
+            os.remove(dest)
+        raise RuntimeError(f"Failed to download PDF for {arxiv_id}: {e}") from e
+
+
+def extract_pdf_text(pdf_path: str, max_chars: int = 80000) -> str:
+    """Extract full text from a PDF using PyMuPDF.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        max_chars: Maximum characters to extract (~20k tokens at 4 chars/token).
+
+    Returns:
+        Extracted text, or empty string if PyMuPDF is unavailable or extraction fails.
+    """
+    if not HAS_FITZ:
+        logger.warning("PyMuPDF not installed, cannot extract text from PDF")
+        return ""
+    try:
+        doc = fitz.open(pdf_path)
+        pages = []
+        for page in doc:
+            pages.append(page.get_text())
+        doc.close()
+        text = "\n\n".join(pages)
+        return text[:max_chars]
+    except Exception as e:
+        logger.error("Failed to extract text from PDF: %s", e)
+        return ""
+
+
 def _find_source_figures(temp_dir: str) -> list[dict[str, Any]]:
     """Find images in arXiv source directories."""
     figures: list[dict[str, Any]] = []
