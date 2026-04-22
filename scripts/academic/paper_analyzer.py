@@ -281,6 +281,12 @@ _ZH_SECTIONS = {
 | 实用性 | /10 | <!-- LLM: 评价方法的实际应用价值 --> |
 
 <!-- LLM: 用2-3句话给出总体评价，包括是否推荐精读、适合什么水平的读者 -->
+
+> [!tip] 关键启示
+> <!-- LLM: 用1-2句话提炼本文最核心的洞见或启发 -->
+
+> [!success] 推荐指数
+> <!-- LLM: 给出推荐星级（1-5星）和一句话推荐理由，如：⭐⭐⭐⭐⭐ [推荐理由] -->
 """,
 }
 
@@ -497,6 +503,12 @@ Key findings:
 | Practicality | /10 | <!-- LLM: How useful is this in practice? --> |
 
 <!-- LLM: Provide a 2-3 sentence overall assessment, including reading recommendation and target audience -->
+
+> [!tip] Key Insights
+> <!-- LLM: Distill the most core insight or takeaway in 1-2 sentences -->
+
+> [!success] Recommendation
+> <!-- LLM: Give a star rating (1-5) and one-sentence reason, e.g.: ⭐⭐⭐⭐⭐ [reason] -->
 """,
 }
 

@@ -5,7 +5,7 @@ description = "Knowledge flywheel MCP server + academic paper research pipeline 
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-authors = [{name = "zfy465914233"}]
+authors = [{name = "scholar-agent contributors"}]
 keywords = ["mcp", "knowledge-management", "arxiv", "academic-research", "obsidian"]
 
 dependencies = [
