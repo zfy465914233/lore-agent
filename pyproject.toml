@@ -39,11 +39,13 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["mcp_server", "setup_mcp"]
-include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["scripts*"]
+
+[tool.setuptools.package-data]
+scripts = ["../schemas/**", "../templates/**", "../.scholar.example.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
