@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scholar_agent.engine.migrate_hierarchy import (
     OR_CHILDREN,
@@ -113,6 +114,20 @@ class TestMigrate(unittest.TestCase):
     def test_constants_not_empty(self) -> None:
         self.assertGreater(len(OR_CHILDREN), 0)
         self.assertGreater(len(TOP_LEVEL), 0)
+
+
+class TestParseArgs(unittest.TestCase):
+    def test_default_knowledge_root_comes_from_config(self) -> None:
+        from scholar_agent.engine import migrate_hierarchy as module
+
+        configured_knowledge = Path("/tmp/configured-knowledge")
+        with (
+            patch("sys.argv", ["migrate_hierarchy"]),
+            patch.object(module, "get_knowledge_dir", return_value=configured_knowledge),
+        ):
+            args = module.parse_args()
+
+        self.assertEqual(Path(args.knowledge_root), configured_knowledge)
 
 
 if __name__ == "__main__":

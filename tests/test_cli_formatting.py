@@ -189,8 +189,10 @@ class TestFormatDoctorText(unittest.TestCase):
     def _base_payload(self) -> dict:
         return {
             "mode": "editable",
-            "config_file": "/home/user/.scholar-agent/config/config.json",
-            "user_home": "/home/user/.scholar-agent",
+            "config_file": "/home/user/.scholar/config/config.json",
+            "user_home": "/home/user/.scholar",
+            "knowledge_dir": "/home/user/scholar/knowledge",
+            "index_path": "/home/user/.scholar/indexes/local/index.json",
             "knowledge_cards": 5,
             "dependencies": {"fastmcp": True, "PyMuPDF": True},
             "mcp": {"claude_registered": True},
@@ -202,19 +204,19 @@ class TestFormatDoctorText(unittest.TestCase):
             "checks": [
                 {
                     "check": "knowledge_dir",
-                    "path": "/home/user/.scholar-agent/knowledge",
+                    "path": "/home/user/scholar/knowledge",
                     "exists": True,
                     "writable": True,
                 },
                 {
                     "check": "index_dir",
-                    "path": "/home/user/.scholar-agent/indexes",
+                    "path": "/home/user/.scholar/indexes/local",
                     "exists": True,
                     "writable": True,
                 },
                 {
                     "check": "index",
-                    "path": "/home/user/.scholar-agent/indexes/local/index.json",
+                    "path": "/home/user/.scholar/indexes/local/index.json",
                     "exists": True,
                     "valid": True,
                 },
@@ -230,6 +232,13 @@ class TestFormatDoctorText(unittest.TestCase):
         text = _format_doctor_text(self._base_payload())
         self.assertIn("All checks passed.", text)
         self.assertNotIn("Problems", text)
+
+    def test_header_shows_distinct_config_and_data_paths(self) -> None:
+        text = _format_doctor_text(self._base_payload())
+        self.assertIn("user_home:       /home/user/.scholar", text)
+        self.assertIn("knowledge_dir:   /home/user/scholar/knowledge", text)
+        self.assertIn("index_path:      /home/user/.scholar/indexes/local/index.json", text)
+        self.assertNotIn("data directory:", text)
 
     def test_missing_pymupdf(self) -> None:
         payload = self._base_payload()

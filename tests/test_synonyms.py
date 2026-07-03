@@ -43,6 +43,11 @@ class TestLoadSynonyms(unittest.TestCase):
             self.assertIn("diffusion model", result)
             self.assertEqual(set(result["diffusion model"]), {"ddpm", "sde"})
 
+    def test_user_dict_path_expands_tilde_scholar_home(self) -> None:
+        with patch.dict("os.environ", {"SCHOLAR_HOME": "~/synonyms-home-check"}):
+            expected = (Path.home() / "synonyms-home-check").resolve() / "synonyms.json"
+            self.assertEqual(expected, syn_mod._user_dict_path())
+
     def test_user_overrides_project(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)

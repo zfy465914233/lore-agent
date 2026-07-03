@@ -6,6 +6,8 @@ import os
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from scholar_agent.engine import usage
 
@@ -38,6 +40,11 @@ class TestUsage(unittest.TestCase):
         usage.reset()  # clear in-memory cache
         # load_usage re-reads from disk
         self.assertEqual(usage.load_usage().get("a"), 5)
+
+    def test_usage_path_expands_tilde_scholar_home(self) -> None:
+        with patch.dict(os.environ, {"SCHOLAR_HOME": "~/usage-home-check"}):
+            expected = (Path.home() / "usage-home-check").resolve() / "usage.json"
+            self.assertEqual(expected, usage._usage_path())
 
     def test_record_empty_is_noop(self) -> None:
         usage.record_usage([])

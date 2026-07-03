@@ -32,9 +32,15 @@ from typing import Any, cast
 from scholar_agent.engine.exceptions import ResearchError, SynthesisError
 
 ENGINE_DIR = Path(__file__).resolve().parent
-DEFAULT_INDEX = Path.cwd() / "indexes" / "local" / "index.json"
 
 logger = logging.getLogger(__name__)
+
+
+def _default_index_path() -> Path:
+    """Resolve the runtime default index path from shared config."""
+    from scholar_agent.engine import scholar_config
+
+    return scholar_config.get_index_path()
 
 
 # ── State machine ──────────────────────────────────────────────────
@@ -61,16 +67,17 @@ class Router:
       context-led — direct context inspection needed (debugging, code)
     """
 
-    def classify(self, query: str, index_path: Path = DEFAULT_INDEX) -> str:
+    def classify(self, query: str, index_path: Path | None = None) -> str:
         """Classify a query into a route type.
 
         Uses in-process classification from orchestrate_research module.
         Falls back to subprocess if import fails (e.g. when scripts/ not on sys.path).
         """
+        resolved_index = index_path if index_path is not None else _default_index_path()
         try:
             from scholar_agent.engine.orchestrate_research import classify_route
 
-            return classify_route(query, index_path)
+            return classify_route(query, resolved_index)
         except ImportError:
             logger.debug("Falling back to subprocess for route classification")
             import subprocess
@@ -83,7 +90,7 @@ class Router:
                     "--mode",
                     "auto",
                     "--index",
-                    str(index_path),
+                    str(resolved_index),
                 ],
                 capture_output=True,
                 text=True,
@@ -113,10 +120,10 @@ class Researcher:
 
     def __init__(
         self,
-        index_path: Path = DEFAULT_INDEX,
+        index_path: Path | None = None,
         research_script: Path | None = None,
     ) -> None:
-        self.index_path = index_path
+        self.index_path = index_path if index_path is not None else _default_index_path()
         self.research_script = research_script or ENGINE_DIR / "research_harness.py"
 
     def gather(self, query: str, route: str) -> dict[str, Any]:
@@ -364,17 +371,18 @@ class DomainAgent:
 
     def __init__(
         self,
-        index_path: Path = DEFAULT_INDEX,
+        index_path: Path | None = None,
         research_script: Path | None = None,
         model: str | None = None,
         max_retries: int = 1,
     ) -> None:
+        resolved_index = index_path if index_path is not None else _default_index_path()
         self.router = Router()
-        self.researcher = Researcher(index_path, research_script)
+        self.researcher = Researcher(resolved_index, research_script)
         self.synthesizer = Synthesizer(model)
         self.curator = Curator()
         self.max_retries = max_retries
-        self.index_path = index_path
+        self.index_path = resolved_index
 
     def run(
         self,

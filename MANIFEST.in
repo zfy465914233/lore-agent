@@ -1,5 +1,14 @@
-include .scholar.json
-include schemas/answer.schema.json
-recursive-include templates *
-recursive-include skills *
-recursive-include scholar_agent *
+graft src/scholar_agent/schemas
+graft src/scholar_agent/templates
+graft src/scholar_agent/skills
+graft src/scholar_agent/validation
+include README.zh-CN.md
+include CONTRIBUTING.md
+include .scholar.example.json
+include assets/banner.svg
+include assets/demo.gif
+include docs/comparison.md
+
+global-exclude *.py[cod]
+
+prune tests

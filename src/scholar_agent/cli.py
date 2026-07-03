@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser(
         "init",
-        help="One-command setup: create data dirs, write config, register MCP.",
+        help="One-command setup: create Scholar home, knowledge data dirs, write config, register MCP.",
     )
     init_parser.add_argument(
         "--force",
@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument(
         "--skip-register",
         action="store_true",
-        help="Skip MCP host registration (only create data dirs and config).",
+        help="Skip MCP host registration (only create Scholar home, knowledge data dirs, and config).",
     )
     init_parser.add_argument(
         "--academic",
@@ -605,7 +605,9 @@ def _format_doctor_text(payload: dict[str, object]) -> str:
 
     lines.append(f"mode:            {payload['mode']}")
     lines.append(f"config_file:     {payload['config_file']}")
-    lines.append(f"data directory:  {payload['user_home']}")
+    lines.append(f"user_home:       {payload['user_home']}")
+    lines.append(f"knowledge_dir:   {payload['knowledge_dir']}")
+    lines.append(f"index_path:      {payload['index_path']}")
     lines.append(f"knowledge cards: {payload['knowledge_cards']}")
     lines.append("")
 
@@ -887,14 +889,14 @@ def _run_init(
     academic: bool,
     output_format: str,
 ) -> int:
-    # Step 1: Create data directories and write config
+    # Step 1: Create Scholar home, knowledge data directories, and config
     init_result = initialize_user_home(force=force)
     user_home = Path(str(init_result["user_home"]))
 
     if output_format == "text" and not init_result.get("config_written", False):
         print(f"(Config already exists at {init_result['user_config_path']}. Use --force to overwrite.)")
 
-    # Detect old data directory and suggest migration
+    # Detect old legacy directory and suggest a careful migration
     if output_format == "text":
         old_home = Path.home() / "scholar-agent"
         if (
@@ -904,9 +906,9 @@ def _run_init(
             and not (old_home / "pyproject.toml").exists()
         ):
             print()
-            print(f"Note: Found old data directory at {old_home}/")
-            print(f"  New data directory is {user_home}/")
-            print(f"  To migrate: mv {old_home}/* {user_home}/")
+            print(f"Note: Found old legacy directory at {old_home}/")
+            print(f"  New Scholar home is {user_home}/")
+            print("  Run `scholar-agent config show --format text` before moving old files.")
             print()
 
     # Step 2: Build initial BM25 index (non-fatal)
@@ -967,16 +969,29 @@ def _run_init(
         print()
         print("=== Scholar Agent Setup Complete ===")
         print()
-        print(f"Data directory: {user_home}")
+        config = scholar_config.load_config()
+        knowledge_dir = Path(str(config["knowledge_dir"]))
+        index_path = Path(str(config["index_path"]))
+        academic_config = config.get("academic", {})
+        paper_notes_dir = Path(str(academic_config.get("paper_notes_dir", knowledge_dir.parent / "paper-notes")))
+        daily_notes_dir = Path(str(academic_config.get("daily_notes_dir", knowledge_dir.parent / "daily-notes")))
+        print(f"Scholar home:   {user_home}")
+        print(f"Data home:      {knowledge_dir.parent}")
+        print(f"Knowledge dir:  {knowledge_dir}")
+        print(f"Index path:     {index_path}")
+        print("Scholar home contains:")
         print("  config/        - Configuration files")
-        print("  knowledge/     - Knowledge cards")
-        print("  paper-notes/   - Paper analysis notes")
-        print("  daily-notes/   - Daily paper recommendations")
         print("  indexes/       - BM25 search index")
         if index_built:
             print("  (Search index initialized)")
         else:
             print("  (Index will be built on first query)")
+        print("  cache/          - Cached data")
+        print("  outputs/        - Generated outputs")
+        print("Knowledge data contains:")
+        print(f"  {knowledge_dir.name}/     - Knowledge cards")
+        print(f"  {paper_notes_dir.name}/  - Paper analysis notes")
+        print(f"  {daily_notes_dir.name}/  - Daily paper recommendations")
         print()
         if register_results:
             has_error = False

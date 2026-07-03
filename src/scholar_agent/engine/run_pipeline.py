@@ -18,9 +18,15 @@ import sys
 from pathlib import Path
 
 ENGINE_DIR = Path(__file__).resolve().parent
-DEFAULT_INDEX = Path.cwd() / "indexes" / "local" / "index.json"
 
 logger = logging.getLogger(__name__)
+
+
+def _default_index_path() -> Path:
+    """Resolve the runtime default index path from shared config."""
+    from scholar_agent.engine import scholar_config
+
+    return scholar_config.get_index_path()
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,8 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         type=Path,
-        default=DEFAULT_INDEX,
-        help="Path to the local retrieval index.",
+        default=_default_index_path(),
+        help="Path to the local retrieval index. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--research-script",
@@ -82,7 +88,7 @@ def _run(script: str, args: list[str], stdin_data: str | None = None) -> subproc
 def run_pipeline(
     query: str,
     mode: str = "auto",
-    index: Path = DEFAULT_INDEX,
+    index: Path | None = None,
     research_script: Path | None = None,
     model: str | None = None,
     dry_run: bool = False,
@@ -90,6 +96,7 @@ def run_pipeline(
 ) -> dict:
     """Execute the full pipeline and return the final output dict."""
 
+    resolved_index = index if index is not None else _default_index_path()
     research_script = research_script or ENGINE_DIR / "research_harness.py"
 
     # Stage 1: Build answer context (includes routing and evidence collection)
@@ -98,7 +105,7 @@ def run_pipeline(
         "--mode",
         mode,
         "--index",
-        str(index),
+        str(resolved_index),
         "--research-script",
         str(research_script),
     ]

@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1124%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1525%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -118,7 +118,7 @@ Cards aren't isolated files. Scholar Agent:
 - Auto-generates **`[[wiki-links]]`** between related cards
 - Tracks **provenance** — every claim links back to its source evidence
 - Outputs **Obsidian-compatible** Markdown (YAML frontmatter + wiki-links)
-- **Obsidian Graph Ready** — Open your data directory (e.g. `~/scholar/`) directly as an Obsidian Vault to navigate your visual knowledge graph.
+- **Obsidian Graph Ready** — Open your knowledge data directory (e.g. `~/scholar/`) directly as an Obsidian Vault to navigate your visual knowledge graph.
 
 ### Evidence-Based Answers
 
@@ -171,15 +171,15 @@ pip install -e .
 scholar-agent init
 ```
 
-One command creates data directories, writes config, and registers MCP with Claude Code. Done.
+One command creates the Scholar home, knowledge data directories, writes config, and registers MCP with Claude Code. Done.
 
 ### Modes
 
-| Mode | Command | Data Location | Scope |
-|------|---------|---------------|-------|
-| **Global** (recommended) | `scholar-agent init` | `~/scholar/` | Every project |
-| **Project-Local** | `SCHOLAR_HOME=./scholar scholar-agent init` | `my-project/scholar/` | Current project only |
-| **Docker** | `docker run -v ~/scholar:/data scholar-agent serve-mcp` | Container volume | Isolated |
+| Mode | Command | Knowledge Data | Config/Index Home | Scope |
+|------|---------|----------------|-------------------|-------|
+| **Global** (recommended) | `scholar-agent init` | `~/scholar/` | `~/.scholar/` | Every project |
+| **Project-Local** | `SCHOLAR_HOME=./scholar scholar-agent init` | `my-project/scholar/` | `my-project/scholar/` | Current project only |
+| **Docker** | `docker run -v ~/scholar:/data scholar-agent serve-mcp` | `/data/` | `/data/` | Isolated |
 
 ---
 
@@ -226,7 +226,7 @@ Knowledge is indexed with **BM25** for fast keyword search — no external depen
 
 | Command | Description |
 |---------|-------------|
-| `scholar-agent init` | One-command setup: data dirs + config + MCP registration |
+| `scholar-agent init` | One-command setup: Scholar home + knowledge data dirs + config + MCP registration |
 | `scholar-agent serve-mcp` | Start the MCP server |
 | `scholar-agent doctor` | Show environment and config diagnostics |
 | `scholar-agent config show` | Show resolved configuration |
@@ -244,7 +244,7 @@ Knowledge is indexed with **BM25** for fast keyword search — no external depen
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SCHOLAR_ACADEMIC` | No | Set to `1` to enable academic tools |
-| `SCHOLAR_HOME` | No | Override data directory (default: `~/scholar/`) |
+| `SCHOLAR_HOME` | No | Override Scholar home. When unset, config/indexes default to `~/.scholar/` and knowledge data defaults to `~/scholar/`; when set, both are rooted in `SCHOLAR_HOME`. |
 | `S2_API_KEY` | No | Semantic Scholar API key ([get one free](https://api.semanticscholar.org/)) |
 | `LLM_API_KEY` | No | LLM API key for advanced synthesis pipeline |
 
@@ -252,23 +252,27 @@ Knowledge is indexed with **BM25** for fast keyword search — no external depen
 
 See [`.scholar.example.json`](.scholar.example.json) for a full example. Key sections:
 
-- `knowledge_dir` — Knowledge cards directory
-- `index_path` — BM25 search index
+- `knowledge_dir` — Knowledge cards directory. Defaults to `~/scholar/knowledge`; with `SCHOLAR_HOME` set, defaults to `$SCHOLAR_HOME/knowledge`.
+- `index_path` — BM25 search index. Defaults to `~/.scholar/indexes/local/index.json`; with `SCHOLAR_HOME` set, defaults to `$SCHOLAR_HOME/indexes/local/index.json`.
 - `academic.research_interests` — Your domains, keywords, arXiv categories
 - `academic.scoring` — Paper scoring weights
 
-### Data Directory
+### Default Path Layout
 
 ```
-scholar/
+~/.scholar/
 ├── config/         # Configuration files
-├── knowledge/      # Knowledge cards
-├── paper-notes/    # Paper analysis notes
-├── daily-notes/    # Daily paper recommendations
 ├── indexes/        # BM25 search index
 ├── cache/          # Cached data
 └── outputs/        # Generated outputs
+
+~/scholar/
+├── knowledge/      # Knowledge cards
+├── paper-notes/    # Paper analysis notes
+└── daily-notes/    # Daily paper recommendations
 ```
+
+When `SCHOLAR_HOME` is set, both groups are created under that directory.
 
 ---
 
@@ -303,7 +307,7 @@ For best paper analysis quality:
 ```bash
 make dev       # Install with dev dependencies + pre-commit hooks
 make lint      # Run ruff + mypy
-make test      # Run test suite (1121 tests, ~20s, fully offline)
+make test      # Run the offline test suite (1525 tests collected; runtime varies by machine)
 make coverage  # Run tests with coverage report
 make build     # Build distribution package
 make docker    # Build Docker image

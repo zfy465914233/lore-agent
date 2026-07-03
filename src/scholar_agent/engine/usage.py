@@ -8,7 +8,7 @@ Design notes:
 - The boost is logarithmic and capped (max ~+20%), so a brand-new card
   (count 0) is unaffected (cold-start safe) and even a very popular card
   cannot outrank a clearly more relevant one.
-- Counts persist to ``SCHOLAR_HOME/usage.json`` so they survive restarts of
+- Counts persist to the Scholar user home, so they survive restarts of
   the long-running MCP server.
 - All access goes through a lock — safe for the MCP server's request threads.
 """
@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import threading
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from scholar_agent.config.paths import get_user_home
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _lock = threading.Lock()
 _usage: dict[str, int] = {}
@@ -33,9 +36,7 @@ BOOST_CAP_STEPS = 4.0  # log2(1+15)≈4 → max boost 1 + 0.05*4 = 1.20
 
 
 def _usage_path() -> Path:
-    home = os.environ.get("SCHOLAR_HOME")
-    base = Path(home) if home else Path.home() / ".scholar"
-    return Path(base) / "usage.json"
+    return get_user_home() / "usage.json"
 
 
 def load_usage() -> dict[str, int]:

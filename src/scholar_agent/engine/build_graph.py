@@ -15,14 +15,16 @@ import html
 import json
 from pathlib import Path
 
+from scholar_agent.engine.scholar_config import get_index_path
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a knowledge graph HTML visualization.")
     parser.add_argument(
         "--index",
         type=Path,
-        default=Path("indexes/local/index.json"),
-        help="Path to the local JSON index file.",
+        default=get_index_path(),
+        help="Path to the local JSON index file. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--output",

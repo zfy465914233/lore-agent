@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1124%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1525%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -115,7 +115,7 @@ sequenceDiagram
 - 自动生成 **`[[wiki-links]]`**，连接相关卡片
 - 追踪**来源**——每个论断都能回溯到原始证据
 - 输出 **Obsidian 兼容**的 Markdown（YAML frontmatter + wiki-links）
-- **Obsidian 知识图谱开箱即用** —— 您可以直接将数据目录（例如 `~/scholar/`）作为 Obsidian 库（Vault）打开，从而直接导航和探索可视化的知识图谱。
+- **Obsidian 知识图谱开箱即用** —— 您可以直接将知识数据目录（例如 `~/scholar/`）作为 Obsidian 库（Vault）打开，从而直接导航和探索可视化的知识图谱。
 
 ### 基于证据的答案
 
@@ -168,15 +168,15 @@ pip install -e .
 scholar-agent init
 ```
 
-一条命令创建数据目录、写入配置、注册 MCP 到 Claude Code。搞定。
+一条命令创建 Scholar home、知识数据目录、写入配置、注册 MCP 到 Claude Code。搞定。
 
 ### 模式
 
-| 模式 | 命令 | 数据位置 | 作用域 |
-|------|------|---------|--------|
-| **全局**（推荐） | `scholar-agent init` | `~/scholar/` | 所有项目 |
-| **项目级** | `SCHOLAR_HOME=./scholar scholar-agent init` | `my-project/scholar/` | 仅当前项目 |
-| **Docker** | `docker run -v ~/scholar:/data scholar-agent serve-mcp` | 容器卷 | 隔离环境 |
+| 模式 | 命令 | 知识数据目录 | 配置/索引目录 | 作用域 |
+|------|------|-------------|-------------|--------|
+| **全局**（推荐） | `scholar-agent init` | `~/scholar/` | `~/.scholar/` | 所有项目 |
+| **项目级** | `SCHOLAR_HOME=./scholar scholar-agent init` | `my-project/scholar/` | `my-project/scholar/` | 仅当前项目 |
+| **Docker** | `docker run -v ~/scholar:/data scholar-agent serve-mcp` | `/data/` | `/data/` | 隔离环境 |
 
 ---
 
@@ -223,7 +223,7 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 
 | 命令 | 说明 |
 |------|------|
-| `scholar-agent init` | 一键设置：数据目录 + 配置 + MCP 注册 |
+| `scholar-agent init` | 一键设置：Scholar home + 知识数据目录 + 配置 + MCP 注册 |
 | `scholar-agent serve-mcp` | 启动 MCP 服务器 |
 | `scholar-agent doctor` | 查看环境与配置诊断信息 |
 | `scholar-agent config show` | 显示解析后的配置 |
@@ -241,7 +241,7 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 | 变量 | 必需 | 说明 |
 |------|------|------|
 | `SCHOLAR_ACADEMIC` | 否 | 设为 `1` 启用学术工具 |
-| `SCHOLAR_HOME` | 否 | 覆盖数据目录（默认 `~/scholar/`） |
+| `SCHOLAR_HOME` | 否 | 覆盖 Scholar home。未设置时，配置/索引默认在 `~/.scholar/`，知识数据默认在 `~/scholar/`；设置后，两者都放在 `SCHOLAR_HOME` 下。 |
 | `S2_API_KEY` | 否 | Semantic Scholar API key（[免费申请](https://api.semanticscholar.org/)） |
 | `LLM_API_KEY` | 否 | LLM API key（用于高级合成管线） |
 
@@ -249,23 +249,27 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 
 完整示例见 [`.scholar.example.json`](.scholar.example.json)。主要配置项：
 
-- `knowledge_dir` — 知识卡片目录路径
-- `index_path` — BM25 搜索索引路径
+- `knowledge_dir` — 知识卡片目录路径。默认 `~/scholar/knowledge`；设置 `SCHOLAR_HOME` 后默认为 `$SCHOLAR_HOME/knowledge`。
+- `index_path` — BM25 搜索索引路径。默认 `~/.scholar/indexes/local/index.json`；设置 `SCHOLAR_HOME` 后默认为 `$SCHOLAR_HOME/indexes/local/index.json`。
 - `academic.research_interests` — 研究领域、关键词和 arXiv 分类
 - `academic.scoring` — 论文评分权重
 
-### 数据目录
+### 默认路径布局
 
 ```
-scholar/
+~/.scholar/
 ├── config/         # 配置文件
-├── knowledge/      # 知识卡片
-├── paper-notes/    # 论文分析笔记
-├── daily-notes/    # 每日论文推荐
 ├── indexes/        # BM25 搜索索引
 ├── cache/          # 缓存数据
 └── outputs/        # 生成输出
+
+~/scholar/
+├── knowledge/      # 知识卡片
+├── paper-notes/    # 论文分析笔记
+└── daily-notes/    # 每日论文推荐
 ```
+
+设置 `SCHOLAR_HOME` 后，上面两组目录都会创建在该目录下。
 
 ---
 
@@ -300,7 +304,7 @@ scholar/
 ```bash
 make dev       # 安装开发依赖 + pre-commit hooks
 make lint      # 运行 ruff + mypy
-make test      # 运行测试（1121 个测试，约 20 秒，完全离线）
+make test      # 运行离线测试（当前收集 1525 个测试；耗时因机器而异）
 make coverage  # 运行测试并生成覆盖率报告
 make build     # 构建分发包
 make docker    # 构建 Docker 镜像

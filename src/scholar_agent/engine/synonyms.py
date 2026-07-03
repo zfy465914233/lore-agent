@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from functools import lru_cache
 from pathlib import Path
 
+from scholar_agent.config.paths import get_user_home
 from scholar_agent.engine.common import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,7 @@ _DEFAULT_PROJECT_DICT = Path(__file__).resolve().parents[3] / "assets" / "synony
 
 def _user_dict_path() -> Path:
     """Return the user-level synonyms path under SCHOLAR_HOME or ~/.scholar."""
-    home = os.environ.get("SCHOLAR_HOME")
-    base = Path(home) if home else Path.home() / ".scholar"
-    return Path(base) / "synonyms.json"
+    return get_user_home() / "synonyms.json"
 
 
 _load_lock = threading.Lock()

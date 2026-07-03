@@ -19,11 +19,10 @@ from pathlib import Path
 from typing import TypeVar
 
 from scholar_agent.engine.bm25 import BM25
+from scholar_agent.engine.scholar_config import get_index_path
 from scholar_agent.engine.synonyms import expand_query
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_INDEX = Path("indexes/local/index.json")
 
 # Blend weights for synonym query expansion. The original query keeps its full
 # BM25 score (1.0) so its ranking is preserved exactly (nDCG-stable); the
@@ -68,8 +67,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         type=Path,
-        default=DEFAULT_INDEX,
-        help="Path to the local JSON index file.",
+        default=get_index_path(),
+        help="Path to the local JSON index file. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--embedding-index",
@@ -324,7 +323,10 @@ def retrieve(query: str, index_path: Path, limit: int, *, rerank: bool = False, 
     embedding_index_path = kwargs.get("embedding_index_path")
     embedding_index = None
     if embedding_index_path and Path(embedding_index_path).exists():
-        embedding_index = json.loads(Path(embedding_index_path).read_text(encoding="utf-8"))
+        try:
+            embedding_index = json.loads(Path(embedding_index_path).read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("failed to read embedding index %s, falling back to BM25: %s", embedding_index_path, exc)
 
     bm25_weight = kwargs.get("bm25_weight", 0.8)
 

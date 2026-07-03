@@ -8,7 +8,7 @@ from pathlib import Path
 
 from scholar_agent.engine.common import atomic_write_text, safe_slug
 from scholar_agent.engine.domain_router import infer_domain as _infer_domain
-from scholar_agent.engine.scholar_config import get_paper_notes_dir
+from scholar_agent.engine.scholar_config import get_knowledge_dir, get_paper_notes_dir
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,8 +17,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--knowledge-root",
         type=Path,
-        default=Path("knowledge"),
-        help="Root knowledge directory where promoted candidates should be written.",
+        default=get_knowledge_dir(),
+        help="Root knowledge directory where promoted candidates should be written. Defaults to the configured knowledge_dir.",
     )
     return parser.parse_args()
 

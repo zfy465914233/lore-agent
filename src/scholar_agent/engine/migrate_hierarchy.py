@@ -17,6 +17,7 @@ from pathlib import Path
 
 from scholar_agent.engine.common import atomic_write_text
 from scholar_agent.engine.domain_router import clear_folder_cache
+from scholar_agent.engine.scholar_config import get_knowledge_dir
 
 OR_CHILDREN = [
     "linear-programming",
@@ -43,7 +44,12 @@ TOP_LEVEL = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Migrate flat knowledge/ to hierarchical structure.")
-    parser.add_argument("--knowledge-root", type=Path, default=Path("knowledge"))
+    parser.add_argument(
+        "--knowledge-root",
+        type=Path,
+        default=get_knowledge_dir(),
+        help="Root knowledge directory. Defaults to the configured knowledge_dir.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 

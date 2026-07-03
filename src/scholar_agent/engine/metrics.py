@@ -12,11 +12,14 @@ report), or :func:`reset` between test cases.
 from __future__ import annotations
 
 import json
-import os
 import threading
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from scholar_agent.config.paths import get_user_home
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass
@@ -109,9 +112,7 @@ def reset() -> None:
 
 def _metrics_path() -> Path:
     """Where the metrics snapshot is persisted for out-of-process readers."""
-    home = os.environ.get("SCHOLAR_HOME")
-    base = Path(home) if home else Path.home() / ".scholar"
-    return Path(base) / "metrics.json"
+    return get_user_home() / "metrics.json"
 
 
 def persist() -> bool:

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from scholar_agent.engine.build_evidence_pack import build_evidence_pack
 from scholar_agent.engine.orchestrate_research import build_decision, classify_route, generate_web_evidence
+from scholar_agent.engine.scholar_config import get_index_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         type=Path,
-        default=Path("indexes/local/index.json"),
-        help="Path to the local retrieval index.",
+        default=get_index_path(),
+        help="Path to the local retrieval index. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--web-evidence",
@@ -107,7 +108,7 @@ def build_answer_context(query: str, route: str, evidence_pack: dict[str, Any], 
 
 def main() -> int:
     args = parse_args()
-    route = classify_route(args.query) if args.mode == "auto" else args.mode
+    route = classify_route(args.query, args.index) if args.mode == "auto" else args.mode
 
     warnings: list[str] = []
     generated_web_path: Path | None = None

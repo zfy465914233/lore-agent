@@ -72,22 +72,50 @@ def get_package_data_path(*parts: str) -> Path:
 # ── Frontmatter parsing ────────────────────────────────────────────
 
 
-def parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
-    """Parse YAML-like frontmatter from a markdown string.
+def _normalize_frontmatter_value(value: Any) -> Any:
+    """Convert YAML-loaded values into JSON-safe frontmatter values."""
+    if value is None:
+        # Preserve the historical lightweight parser behavior: a bare
+        # ``key:`` represented an empty list placeholder.
+        return []
+    if isinstance(value, dict):
+        return {str(k): _normalize_frontmatter_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_frontmatter_value(v) for v in value]
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
-    Returns (metadata_dict, body_text).
-    Handles scalar values and list values (``  - item`` syntax).
-    """
-    if not raw.startswith("---\n") and not raw.startswith("---\r\n"):
-        return {}, raw
 
-    # Normalize line endings for consistent splitting
-    normalized = raw.replace("\r\n", "\n")
-    parts = normalized.split("\n---\n", 1)
-    if len(parts) != 2:
-        return {}, raw
+def _decode_unicode_escapes(value: str) -> str:
+    if "\\u" not in value:
+        return value
+    return re.sub(
+        r"\\u([0-9a-fA-F]{4})",
+        lambda m: chr(int(m.group(1), 16)),
+        value,
+    )
 
-    lines = parts[0].splitlines()[1:]  # skip opening ---
+
+def _parse_inline_list(value: str) -> list[str] | None:
+    stripped = value.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return None
+    inner = stripped[1:-1].strip()
+    if not inner:
+        return []
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    except json.JSONDecodeError:
+        pass
+    return [item.strip().strip("'\"") for item in inner.split(",") if item.strip()]
+
+
+def _parse_frontmatter_fallback(frontmatter: str) -> dict[str, Any]:
+    """Parse the small frontmatter subset used when PyYAML is unavailable."""
+    lines = frontmatter.splitlines()
     metadata: dict[str, Any] = {}
     current_key: str | None = None
     current_list: list[str] | None = None
@@ -98,12 +126,12 @@ def parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
 
         # List item under a key (indented with 2 spaces)
         if line.startswith("  - ") and current_key is not None and current_list is not None:
-            current_list.append(line[4:].strip())
+            current_list.append(_decode_unicode_escapes(line[4:].strip().strip("'\"")))
             continue
 
         # Also support unindented list items (some markdown styles)
         if line.startswith("- ") and current_key is not None and current_list is not None:
-            current_list.append(line[2:].strip())
+            current_list.append(_decode_unicode_escapes(line[2:].strip().strip("'\"")))
             continue
 
         if ":" not in line:
@@ -111,27 +139,55 @@ def parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
 
         key, value = line.split(":", 1)
         key = key.strip()
-        value = value.strip().strip("'\"")
-        # Decode \uXXXX unicode escapes (from json.dumps with ensure_ascii)
-        if value and "\\u" in value:
-            import re
-
-            value = re.sub(
-                r"\\u([0-9a-fA-F]{4})",
-                lambda m: chr(int(m.group(1), 16)),
-                value,
-            )
+        value = _decode_unicode_escapes(value.strip().strip("'\""))
 
         if not value:
             current_key = key
             current_list = []
             metadata[key] = current_list
-        else:
-            current_key = None
-            current_list = None
-            metadata[key] = value
+            continue
 
-    return metadata, parts[1].strip()
+        inline_list = _parse_inline_list(value)
+        if inline_list is not None:
+            metadata[key] = inline_list
+        else:
+            metadata[key] = value
+        current_key = None
+        current_list = None
+
+    return metadata
+
+
+def parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
+    """Parse YAML frontmatter from a markdown string.
+
+    Returns (metadata_dict, body_text).
+    Uses PyYAML when installed, with a small fallback parser for the
+    project-generated scalar/list subset.
+    """
+    if not raw.startswith("---\n") and not raw.startswith("---\r\n"):
+        return {}, raw
+
+    # Normalize line endings for consistent splitting
+    normalized = raw.replace("\r\n", "\n")
+    parts = normalized.split("\n---\n", 1)
+    if len(parts) != 2:
+        return {}, raw
+
+    frontmatter = "\n".join(parts[0].splitlines()[1:])  # skip opening ---
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        loaded = yaml.safe_load(frontmatter) if frontmatter.strip() else {}
+        if isinstance(loaded, dict):
+            return (
+                {str(k): _normalize_frontmatter_value(v) for k, v in loaded.items()},
+                parts[1].strip(),
+            )
+    except Exception as exc:
+        logger.debug("PyYAML frontmatter parse failed, using fallback parser: %s", exc)
+
+    return _parse_frontmatter_fallback(frontmatter), parts[1].strip()
 
 
 # ── Slugification ──────────────────────────────────────────────────

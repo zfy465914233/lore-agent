@@ -3,6 +3,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -116,6 +117,17 @@ class RouterTest(unittest.TestCase):
         self.assertTrue(r.should_research_local("web-led"))
         self.assertFalse(r.should_research_local("context-led"))
 
+    def test_classify_default_index_uses_runtime_config(self) -> None:
+        configured_index = Path("/tmp/configured-index.json")
+        with (
+            patch("scholar_agent.engine.agent._default_index_path", return_value=configured_index),
+            patch("scholar_agent.engine.orchestrate_research.classify_route", return_value="mixed") as classify_route,
+        ):
+            route = Router().classify("ambiguous query")
+
+        self.assertEqual("mixed", route)
+        classify_route.assert_called_once_with("ambiguous query", configured_index)
+
 
 class ResearcherTest(unittest.TestCase):
     """Test the Researcher role in isolation."""
@@ -137,10 +149,20 @@ class ResearcherTest(unittest.TestCase):
         self.assertTrue(sufficient)
 
     def test_evidence_insufficient_on_empty(self) -> None:
-        r = Researcher()
+        r = Researcher(index_path=INDEX_PATH)
         sufficient, reason = r.is_evidence_sufficient({"direct_support": [], "uncertainty_notes": []})
         self.assertFalse(sufficient)
         self.assertEqual("No direct evidence found.", reason)
+
+    def test_default_index_uses_runtime_config(self) -> None:
+        configured_index = Path("/tmp/configured-index.json")
+        with patch("scholar_agent.engine.agent._default_index_path", return_value=configured_index):
+            researcher = Researcher()
+            agent = DomainAgent()
+
+        self.assertEqual(configured_index, researcher.index_path)
+        self.assertEqual(configured_index, agent.index_path)
+        self.assertEqual(configured_index, agent.researcher.index_path)
 
 
 if __name__ == "__main__":

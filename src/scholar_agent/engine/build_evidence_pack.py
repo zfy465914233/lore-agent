@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 
 from scholar_agent.engine.local_retrieve import retrieve
+from scholar_agent.engine.scholar_config import get_index_path
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         type=Path,
-        default=Path("indexes/local/index.json"),
-        help="Path to the local retrieval index.",
+        default=get_index_path(),
+        help="Path to the local retrieval index. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--web-evidence",

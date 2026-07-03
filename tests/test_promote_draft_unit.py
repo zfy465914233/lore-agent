@@ -346,12 +346,16 @@ class TestParseArgs(unittest.TestCase):
     def test_required_args(self) -> None:
         from pathlib import Path
 
-        from scholar_agent.engine.promote_draft import parse_args
+        from scholar_agent.engine import promote_draft as module
 
-        with unittest.mock.patch("sys.argv", ["promote_draft", "--draft", "/tmp/draft.md"]):
-            args = parse_args()
+        configured_knowledge = Path("/tmp/configured-knowledge")
+        with (
+            unittest.mock.patch("sys.argv", ["promote_draft", "--draft", "/tmp/draft.md"]),
+            unittest.mock.patch.object(module, "get_knowledge_dir", return_value=configured_knowledge),
+        ):
+            args = module.parse_args()
         self.assertEqual(Path(args.draft), Path("/tmp/draft.md"))
-        self.assertEqual(Path(args.knowledge_root), Path("knowledge"))
+        self.assertEqual(Path(args.knowledge_root), configured_knowledge)
 
     def test_custom_knowledge_root(self) -> None:
         from pathlib import Path

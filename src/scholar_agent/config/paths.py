@@ -28,7 +28,7 @@ def get_scholar_root() -> Path:
 
 
 def _default_user_home() -> Path:
-    """Cross-platform default: ~/scholar/ on all platforms.
+    """Cross-platform default: ~/.scholar/ on all platforms.
 
     Simple, discoverable, consistent. Override with SCHOLAR_HOME env var.
     """

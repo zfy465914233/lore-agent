@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -168,6 +169,23 @@ class AnswerContextTest(unittest.TestCase):
         self.assertEqual(1, len(web_citations))
         self.assertEqual("Local-Led Bundle", web_citations[0]["title"])
         self.assertTrue(any("web evidence is present" in note.lower() for note in payload["uncertainty_notes"]))
+
+    def test_auto_mode_passes_explicit_index_to_route_probe(self) -> None:
+        from scholar_agent.engine import build_answer_context as module
+
+        explicit_index = Path("/tmp/explicit-index.json")
+
+        with (
+            patch("sys.argv", ["build_answer_context", "probe query", "--index", str(explicit_index)]),
+            patch.object(module, "classify_route", return_value="local-led") as classify_route,
+            patch.object(module, "build_evidence_pack", return_value={"items": [], "web_count": 0}) as evidence_pack,
+            patch("builtins.print"),
+        ):
+            ret = module.main()
+
+        self.assertEqual(0, ret)
+        classify_route.assert_called_once_with("probe query", explicit_index)
+        evidence_pack.assert_called_once_with("probe query", explicit_index, None, 5)
 
 
 if __name__ == "__main__":

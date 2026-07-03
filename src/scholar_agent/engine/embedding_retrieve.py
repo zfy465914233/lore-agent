@@ -337,16 +337,20 @@ def retrieve_by_embedding(
 def main() -> int:
     import argparse
 
+    from scholar_agent.engine.scholar_config import get_index_path
+
+    default_index_path = get_index_path()
+
     parser = argparse.ArgumentParser(description="Build or test embedding index.")
     sub = parser.add_subparsers(dest="command")
 
     build = sub.add_parser("build", help="Build embedding index from local index.")
-    build.add_argument("--index", type=Path, default=Path("indexes/local/index.json"))
-    build.add_argument("--output", type=Path, default=Path("indexes/local/embeddings.json"))
+    build.add_argument("--index", type=Path, default=default_index_path)
+    build.add_argument("--output", type=Path, default=default_index_path.with_name("embeddings.json"))
 
     search = sub.add_parser("search", help="Search using embedding index.")
     search.add_argument("query")
-    search.add_argument("--embedding-index", type=Path, default=Path("indexes/local/embeddings.json"))
+    search.add_argument("--embedding-index", type=Path, default=default_index_path.with_name("embeddings.json"))
     search.add_argument("--limit", type=int, default=5)
 
     args = parser.parse_args()

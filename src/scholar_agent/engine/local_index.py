@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from scholar_agent.engine.common import atomic_write_text, extract_wiki_links, parse_frontmatter, resolve_link_target
+from scholar_agent.engine.scholar_config import get_index_path, get_knowledge_dir
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +24,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--knowledge-root",
         type=Path,
-        default=Path("knowledge"),
-        help="Root directory containing local knowledge files.",
+        default=get_knowledge_dir(),
+        help="Root directory containing local knowledge files. Defaults to the configured knowledge_dir.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("indexes/local/index.json"),
-        help="Output path for the generated index.",
+        default=get_index_path(),
+        help="Output path for the generated index. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--build-embedding-index",
@@ -40,8 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--embedding-output",
         type=Path,
-        default=Path("indexes/local/embeddings.json"),
-        help="Output path for the embedding index.",
+        default=get_index_path().with_name("embeddings.json"),
+        help="Output path for the embedding index. Defaults beside the configured index_path.",
     )
     parser.add_argument(
         "--full-rebuild",
@@ -145,13 +146,22 @@ def _extra_scan_dirs(knowledge_root: Path) -> list[Path]:
 
 def iter_cards(knowledge_root: Path, extra_dirs: list[Path] | None = None) -> list[Path]:
     paths: list[Path] = []
+    seen: set[str] = set()
+
+    def add_paths(candidates) -> None:
+        for path in candidates:
+            key = str(path.resolve())
+            if key not in seen:
+                paths.append(path)
+                seen.add(key)
+
     if knowledge_root.exists():
-        paths.extend(knowledge_root.rglob("*.md"))
+        add_paths(knowledge_root.rglob("*.md"))
 
     dirs = extra_dirs if extra_dirs is not None else _extra_scan_dirs(knowledge_root)
     for extra_dir in dirs:
         if extra_dir.exists():
-            paths.extend(extra_dir.rglob("*.md"))
+            add_paths(extra_dir.rglob("*.md"))
 
     return sorted(path for path in paths if is_card(path))
 
@@ -232,7 +242,7 @@ def build_index_incremental(
     old_manifest = _load_manifest(index_output)
     if not old_manifest:
         logger.info("No manifest found, performing full rebuild")
-        payload = build_index(knowledge_root)
+        payload = build_index(knowledge_root, extra_dirs)
         manifest = _build_manifest(payload, knowledge_root)
         _save_manifest(manifest, index_output)
         return payload
@@ -246,7 +256,7 @@ def build_index_incremental(
         existing_docs = {str(Path(doc["path"]).resolve().as_posix()): doc for doc in existing.get("documents", [])}
     except (json.JSONDecodeError, OSError, KeyError, ValueError):
         logger.info("Existing index corrupt or outdated, performing full rebuild")
-        payload = build_index(knowledge_root)
+        payload = build_index(knowledge_root, extra_dirs)
         manifest = _build_manifest(payload, knowledge_root)
         _save_manifest(manifest, index_output)
         return payload

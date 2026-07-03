@@ -158,6 +158,30 @@ class BuildDefaultConfigTest(unittest.TestCase):
         config = build_default_config(env={}, scholar_root=None)
         self.assertEqual(config["scholar_dir"], str(get_scholar_root().resolve()))
 
+    def test_default_paths_split_user_home_and_knowledge_data(self) -> None:
+        config = build_default_config(env={})
+        self.assertEqual(config["knowledge_dir"], str((Path.home() / "scholar" / "knowledge").resolve()))
+        self.assertEqual(
+            config["index_path"],
+            str((Path.home() / ".scholar" / "indexes" / "local" / "index.json").resolve()),
+        )
+        self.assertEqual(
+            config["academic"]["paper_notes_dir"],
+            str((Path.home() / "scholar" / "paper-notes").resolve()),
+        )
+        self.assertEqual(
+            config["academic"]["daily_notes_dir"],
+            str((Path.home() / "scholar" / "daily-notes").resolve()),
+        )
+
+    def test_scholar_home_co_locates_user_home_and_knowledge_data(self) -> None:
+        home = Path("/tmp/test-home").resolve()
+        config = build_default_config(env={"SCHOLAR_HOME": str(home)})
+        self.assertEqual(config["knowledge_dir"], str(home / "knowledge"))
+        self.assertEqual(config["index_path"], str(home / "indexes" / "local" / "index.json"))
+        self.assertEqual(config["academic"]["paper_notes_dir"], str(home / "paper-notes"))
+        self.assertEqual(config["academic"]["daily_notes_dir"], str(home / "daily-notes"))
+
 
 class ConstantsTest(unittest.TestCase):
     def test_app_name(self) -> None:

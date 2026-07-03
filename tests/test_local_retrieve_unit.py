@@ -310,6 +310,24 @@ class TestRetrieve(unittest.TestCase):
             if result["results"]:
                 self.assertEqual(result["results"][0]["source"], "bm25")
 
+    def test_retrieve_corrupt_embedding_index_uses_bm25(self) -> None:
+        """A corrupt embedding index should not break lexical retrieval."""
+        with tempfile.TemporaryDirectory() as tmp:
+            index_path = self._make_index_file(tmp)
+            emb_path = Path(tmp) / "embeddings.json"
+            emb_path.write_text("not json {{{", encoding="utf-8")
+
+            result = retrieve(
+                "markov",
+                index_path,
+                limit=3,
+                embedding_index_path=str(emb_path),
+            )
+
+            self.assertNotIn("error", result)
+            self.assertGreater(len(result["results"]), 0)
+            self.assertEqual(result["results"][0]["source"], "bm25")
+
     def test_retrieve_preserves_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             index_path = self._make_index_file(tmp)

@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from scholar_agent.engine.build_evidence_pack import build_evidence_pack
+from scholar_agent.engine.scholar_config import get_index_path
 
 LATEST_PATTERNS = (
     "latest",
@@ -83,8 +84,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index",
         type=Path,
-        default=Path("indexes/local/index.json"),
-        help="Path to the local retrieval index.",
+        default=get_index_path(),
+        help="Path to the local retrieval index. Defaults to the configured index_path.",
     )
     parser.add_argument(
         "--web-evidence",

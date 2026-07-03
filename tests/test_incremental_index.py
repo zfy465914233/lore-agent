@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,6 +91,24 @@ class IncrementalIndexTest(unittest.TestCase):
         payload = build_index_incremental(self.tmpdir, self.index_path, extra_dirs=[])
         self.assertEqual(1, len(payload["documents"]))
 
+    def test_missing_manifest_preserves_explicit_extra_dirs(self) -> None:
+        extra_dir = self.tmpdir / "external-notes"
+        extra_dir.mkdir()
+        extra_card = extra_dir / "extra-card.md"
+        extra_card.write_text(
+            "---\nid: extra-1\ntitle: Extra Card\ntype: knowledge\ntopic: extra\n---\n\nExtra body.\n",
+            encoding="utf-8",
+        )
+
+        with patch(
+            "scholar_agent.engine.local_index._extra_scan_dirs",
+            side_effect=AssertionError("explicit extra_dirs should not fall back to global config"),
+        ):
+            payload = build_index_incremental(self.tmpdir, self.index_path, extra_dirs=[extra_dir])
+
+        doc_ids = {doc["doc_id"] for doc in payload["documents"]}
+        self.assertEqual({"test-1", "extra-1"}, doc_ids)
+
     def test_incremental_falls_back_on_corrupt_index(self) -> None:
         # Write corrupt index
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +117,42 @@ class IncrementalIndexTest(unittest.TestCase):
 
         payload = build_index_incremental(self.tmpdir, self.index_path, extra_dirs=[])
         self.assertEqual(1, len(payload["documents"]))
+
+    def test_corrupt_index_preserves_explicit_extra_dirs(self) -> None:
+        extra_dir = self.tmpdir / "external-notes"
+        extra_dir.mkdir()
+        extra_card = extra_dir / "extra-card.md"
+        extra_card.write_text(
+            "---\nid: extra-1\ntitle: Extra Card\ntype: knowledge\ntopic: extra\n---\n\nExtra body.\n",
+            encoding="utf-8",
+        )
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
+        self.index_path.write_text("NOT JSON", encoding="utf-8")
+        _save_manifest({"x": 1.0}, self.index_path)
+
+        with patch(
+            "scholar_agent.engine.local_index._extra_scan_dirs",
+            side_effect=AssertionError("explicit extra_dirs should not fall back to global config"),
+        ):
+            payload = build_index_incremental(self.tmpdir, self.index_path, extra_dirs=[extra_dir])
+
+        doc_ids = {doc["doc_id"] for doc in payload["documents"]}
+        self.assertEqual({"test-1", "extra-1"}, doc_ids)
+
+    def test_iter_cards_deduplicates_overlapping_extra_dirs(self) -> None:
+        nested_dir = self.tmpdir / "nested-extra"
+        nested_dir.mkdir()
+        nested_card = nested_dir / "nested-card.md"
+        nested_card.write_text(
+            "---\nid: nested-1\ntitle: Nested Card\ntype: knowledge\ntopic: nested\n---\n\nNested body.\n",
+            encoding="utf-8",
+        )
+
+        payload = build_index(self.tmpdir, extra_dirs=[nested_dir])
+        doc_ids = [doc["doc_id"] for doc in payload["documents"]]
+
+        self.assertEqual(1, doc_ids.count("nested-1"))
+        self.assertEqual({"test-1", "nested-1"}, set(doc_ids))
 
     def test_incremental_detects_modified_card(self) -> None:
         # First build

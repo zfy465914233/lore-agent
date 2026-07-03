@@ -24,11 +24,11 @@ from scholar_agent.engine.common import get_repo_root
 
 # Import run_pipeline (scripts dir is on sys.path when run as script)
 from scholar_agent.engine.run_pipeline import run_pipeline
+from scholar_agent.engine.scholar_config import get_index_path
 
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = get_repo_root()
-DEFAULT_INDEX = _REPO_ROOT / "indexes" / "local" / "index.json"
 FAKE_HARNESS = _REPO_ROOT / "tests" / "fake_research_harness.py"
 
 
@@ -105,13 +105,13 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
 ]
 
 
-def evaluate_case(case: BenchmarkCase, dry_run: bool = False) -> dict:
+def evaluate_case(case: BenchmarkCase, index: Path, dry_run: bool = False) -> dict:
     """Run a single benchmark case through the pipeline and score it."""
     try:
         output = run_pipeline(
             query=case.query,
             mode="auto",
-            index=DEFAULT_INDEX,
+            index=index,
             research_script=FAKE_HARNESS,
             dry_run=dry_run,
         )
@@ -157,11 +157,11 @@ def evaluate_case(case: BenchmarkCase, dry_run: bool = False) -> dict:
     }
 
 
-def run_evaluation(cases: list[BenchmarkCase], dry_run: bool = False) -> dict:
+def run_evaluation(cases: list[BenchmarkCase], index: Path, dry_run: bool = False) -> dict:
     """Run all benchmark cases and produce a summary report."""
     results = []
     for case in cases:
-        result = evaluate_case(case, dry_run=dry_run)
+        result = evaluate_case(case, index=index, dry_run=dry_run)
         results.append(result)
 
     # Aggregate scores
@@ -211,6 +211,12 @@ def parse_args() -> argparse.Namespace:
         help="Dry-run mode: skip LLM calls.",
     )
     parser.add_argument(
+        "--index",
+        type=Path,
+        default=get_index_path(),
+        help="Path to the local retrieval index. Defaults to the configured index_path.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         help="Write JSON report to file instead of stdout.",
@@ -224,9 +230,10 @@ def main() -> int:
     # Ensure index exists
     import subprocess
 
-    if not DEFAULT_INDEX.exists():
+    index_path = args.index
+    if not index_path.exists():
         subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent / "local_index.py"), "--output", str(DEFAULT_INDEX)],
+            [sys.executable, "-m", "scholar_agent.engine.local_index", "--output", str(index_path)],
             check=True,
             capture_output=True,
         )
@@ -238,7 +245,7 @@ def main() -> int:
             logger.warning("No cases found for category '%s'.", args.category)
             return 1
 
-    report = run_evaluation(cases, dry_run=args.dry_run)
+    report = run_evaluation(cases, index=index_path, dry_run=args.dry_run)
     text = json.dumps(report, ensure_ascii=False, indent=2)
 
     if args.output:

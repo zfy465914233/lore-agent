@@ -39,6 +39,20 @@ class ParseFrontmatterTest(unittest.TestCase):
         self.assertEqual(["alpha", "beta"], meta["tags"])
         self.assertEqual("Body", body)
 
+    def test_inline_list_values(self) -> None:
+        raw = "---\ntags: [alpha, beta]\nsource_refs: ['https://example.com/a:b']\n---\nBody"
+        meta, body = parse_frontmatter(raw)
+        self.assertEqual(["alpha", "beta"], meta["tags"])
+        self.assertEqual(["https://example.com/a:b"], meta["source_refs"])
+        self.assertEqual("Body", body)
+
+    def test_yaml_values_are_json_safe(self) -> None:
+        raw = "---\nupdated_at: 2026-01-02\nstale: true\nscore: 3\n---\nBody"
+        meta, _body = parse_frontmatter(raw)
+        self.assertEqual("2026-01-02", meta["updated_at"])
+        self.assertIs(meta["stale"], True)
+        self.assertEqual(3, meta["score"])
+
     def test_no_frontmatter(self) -> None:
         meta, body = parse_frontmatter("Just a body")
         self.assertEqual({}, meta)

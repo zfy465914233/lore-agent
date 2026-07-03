@@ -7,6 +7,8 @@ import shutil
 import tempfile
 import threading
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from scholar_agent.engine import metrics
 
@@ -127,6 +129,11 @@ class TestMetricsPersistence(unittest.TestCase):
         assert loaded is not None
         self.assertEqual(loaded["retrieve"]["calls"], 1)
         self.assertEqual(loaded["llm"]["total_tokens"], 100)
+
+    def test_metrics_path_expands_tilde_scholar_home(self) -> None:
+        with patch.dict(os.environ, {"SCHOLAR_HOME": "~/metrics-home-check"}):
+            expected = (Path.home() / "metrics-home-check").resolve() / "metrics.json"
+            self.assertEqual(expected, metrics._metrics_path())
 
     def test_load_returns_none_when_no_file(self) -> None:
         self.assertIsNone(metrics.load_persisted())

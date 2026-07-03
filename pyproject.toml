@@ -69,7 +69,28 @@ where = ["src"]
 include = ["scholar_agent*"]
 
 [tool.setuptools.package-data]
-scholar_agent = ["schemas/**", "templates/**", "config_data/**", "skills/**", "validation/**"]
+scholar_agent = [
+    "schemas/*.json",
+    "schemas/*.md",
+    "templates/*.md",
+    "skills/**/*.md",
+    "skills/**/*.py",
+    "validation/*.json",
+    "validation/*.md",
+    "validation/*.yaml",
+    "validation/*.yml",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "*.py[cod]",
+    "__pycache__/*",
+    "*/__pycache__/*",
+    "*/*/__pycache__/*",
+    ".DS_Store",
+    "*/.DS_Store",
+    "*/*/.DS_Store",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
