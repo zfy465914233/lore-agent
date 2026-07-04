@@ -1,4 +1,4 @@
-.PHONY: install dev lint format test coverage clean build docker
+.PHONY: install dev lint format test coverage clean build check-dist docker
 
 install:
 	pip install -e .
@@ -8,12 +8,12 @@ dev:
 	pre-commit install
 
 lint:
-	ruff check src/ tests/
+	ruff check src/ tests/ scripts/check_dist.py
 	mypy src/scholar_agent/
 
 format:
-	ruff format src/ tests/
-	ruff check --fix src/ tests/
+	ruff format src/ tests/ scripts/check_dist.py
+	ruff check --fix src/ tests/ scripts/check_dist.py
 
 test:
 	python -m pytest tests/ -v
@@ -27,6 +27,11 @@ clean:
 
 build:
 	python -m build
+
+check-dist:
+	rm -rf dist/
+	python -m build
+	python scripts/check_dist.py --dist-dir dist
 
 docker:
 	docker build -t scholar-agent .

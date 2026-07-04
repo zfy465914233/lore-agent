@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1529%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1531%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -304,9 +304,10 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 ```bash
 make dev       # 安装开发依赖 + pre-commit hooks
 make lint      # 运行 ruff + mypy
-make test      # 运行离线测试（当前收集 1529 个测试；耗时因机器而异）
+make test      # 运行离线测试（当前收集 1531 个测试；耗时因机器而异）
 make coverage  # 运行测试并生成覆盖率报告
 make build     # 构建分发包
+make check-dist # 构建并验证 sdist/wheel 内容
 make docker    # 构建 Docker 镜像
 ```
 
