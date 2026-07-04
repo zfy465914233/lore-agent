@@ -6,6 +6,7 @@ import argparse
 import re
 from pathlib import Path
 
+from scholar_agent.engine.clock import utc_today
 from scholar_agent.engine.common import atomic_write_text, safe_slug
 from scholar_agent.engine.domain_router import infer_domain as _infer_domain
 from scholar_agent.engine.scholar_config import get_knowledge_dir, get_paper_notes_dir
@@ -74,8 +75,16 @@ def collect_citation_ids(text: str) -> list[str]:
     return re.findall(r"`([^`]+)`", "\n".join(extract_section(text, "Citations")))
 
 
-def build_candidate_markdown(query: str, card_type: str, citation_ids: list[str], direct_support: list[str]) -> str:
+def build_candidate_markdown(
+    query: str,
+    card_type: str,
+    citation_ids: list[str],
+    direct_support: list[str],
+    *,
+    updated_at: str | None = None,
+) -> str:
     slug = safe_slug(query)
+    resolved_updated_at = updated_at or utc_today()
     lines = [
         "---",
         f"id: distilled-{slug}",
@@ -92,7 +101,7 @@ def build_candidate_markdown(query: str, card_type: str, citation_ids: list[str]
     lines.extend(
         [
             "confidence: draft",
-            "updated_at: 2026-04-01",
+            f"updated_at: {resolved_updated_at}",
             "origin: promoted_from_distilled_note",
             "---",
             "",

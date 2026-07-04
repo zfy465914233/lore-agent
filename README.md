@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1525%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1529%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -307,7 +307,7 @@ For best paper analysis quality:
 ```bash
 make dev       # Install with dev dependencies + pre-commit hooks
 make lint      # Run ruff + mypy
-make test      # Run the offline test suite (1525 tests collected; runtime varies by machine)
+make test      # Run the offline test suite (1529 tests collected; runtime varies by machine)
 make coverage  # Run tests with coverage report
 make build     # Build distribution package
 make docker    # Build Docker image

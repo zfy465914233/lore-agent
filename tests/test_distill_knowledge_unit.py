@@ -74,6 +74,10 @@ class TestBuildMarkdownAllFields(unittest.TestCase):
         md = build_markdown(self._full_payload())
         self.assertIn("origin: distilled", md)
 
+    def test_updated_at_can_be_injected(self):
+        md = build_markdown(self._full_payload(), updated_at="2030-01-02")
+        self.assertIn("updated_at: 2030-01-02", md)
+
     def test_query_section(self):
         md = build_markdown(self._full_payload())
         self.assertIn("## Query", md)
@@ -287,6 +291,12 @@ class TestBuildMarkdownStructure(unittest.TestCase):
     def test_topic_in_frontmatter(self):
         md = build_markdown({"query": "q"})
         self.assertIn("topic: research_distillation", md)
+
+    def test_default_updated_at_uses_current_utc_date(self):
+        from scholar_agent.engine.clock import utc_today
+
+        md = build_markdown({"query": "q"})
+        self.assertIn(f"updated_at: {utc_today()}", md)
 
 
 class TestParseArgs(unittest.TestCase):

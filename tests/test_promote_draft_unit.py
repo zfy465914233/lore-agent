@@ -291,6 +291,10 @@ class TestBuildCandidateMarkdown(unittest.TestCase):
         md = build_candidate_markdown("q", "knowledge", [], [])
         self.assertIn("confidence: draft", md)
 
+    def test_updated_at_can_be_injected(self):
+        md = build_candidate_markdown("q", "knowledge", [], [], updated_at="2030-01-02")
+        self.assertIn("updated_at: 2030-01-02", md)
+
     def test_origin(self):
         md = build_candidate_markdown("q", "knowledge", [], [])
         self.assertIn("origin: promoted_from_distilled_note", md)
@@ -326,6 +330,12 @@ class TestBuildCandidateMarkdown(unittest.TestCase):
     def test_output_ends_with_newline(self):
         md = build_candidate_markdown("q", "knowledge", [], [])
         self.assertTrue(md.endswith("\n"))
+
+    def test_default_updated_at_uses_current_utc_date(self):
+        from scholar_agent.engine.clock import utc_today
+
+        md = build_candidate_markdown("q", "knowledge", [], [])
+        self.assertIn(f"updated_at: {utc_today()}", md)
 
     def test_multiple_citations_and_support(self):
         md = build_candidate_markdown(

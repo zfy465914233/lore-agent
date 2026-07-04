@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from scholar_agent.engine.clock import utc_today
 from scholar_agent.engine.common import atomic_write_text, safe_slug
 
 
@@ -29,13 +30,14 @@ def parse_args() -> argparse.Namespace:
 from typing import Any
 
 
-def build_markdown(payload: dict[str, Any]) -> str:
+def build_markdown(payload: dict[str, Any], *, updated_at: str | None = None) -> str:
     query = str(payload.get("query", "")).strip()
     route = str(payload.get("route", "")).strip()
     direct_support = payload.get("direct_support", [])
     inference_notes = payload.get("inference_notes", [])
     uncertainty_notes = payload.get("uncertainty_notes", [])
     citations = payload.get("citations", [])
+    resolved_updated_at = updated_at or utc_today()
 
     lines = [
         "---",
@@ -49,7 +51,7 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "source_refs:",
         "  - answer_context",
         "confidence: draft",
-        "updated_at: 2026-04-01",
+        f"updated_at: {resolved_updated_at}",
         "origin: distilled",
         "---",
         "",
