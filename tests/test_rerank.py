@@ -100,6 +100,29 @@ class TestRerank(unittest.TestCase):
             result = rerank("q", self._candidates(), top_k=1, batched=False)
         self.assertEqual(len(result), 1)
 
+    def test_per_candidate_prompt_prefers_snippet(self) -> None:
+        candidates = [
+            {
+                "doc_id": "a",
+                "title": "Doc A",
+                "snippet": "retrieval snippet content",
+                "search_text": "full indexed content",
+                "path": "/tmp/fallback.md",
+            }
+        ]
+        prompts: list[str] = []
+
+        def fake_chat(messages, **kwargs):  # type: ignore[no-untyped-def]
+            prompts.append(messages[0]["content"])
+            return _make_response("9")
+
+        with patch("scholar_agent.engine.rerank.chat", side_effect=fake_chat):
+            rerank("q", candidates, top_k=1, batched=False)
+
+        self.assertIn("retrieval snippet content", prompts[0])
+        self.assertNotIn("full indexed content", prompts[0])
+        self.assertNotIn("/tmp/fallback.md", prompts[0])
+
 
 class TestRerankBatched(unittest.TestCase):
     """Tests for the batched single-call rerank path."""
@@ -126,6 +149,29 @@ class TestRerankBatched(unittest.TestCase):
         self.assertEqual(call_count, 1)
         # Sorted: b(9), c(5), a(3)
         self.assertEqual([r["doc_id"] for r in result], ["b", "c"])
+
+    def test_batched_prompt_prefers_snippet(self) -> None:
+        candidates = [
+            {
+                "doc_id": "a",
+                "title": "Doc A",
+                "snippet": "retrieval snippet content",
+                "search_text": "full indexed content",
+                "path": "/tmp/fallback.md",
+            }
+        ]
+        prompts: list[str] = []
+
+        def fake_chat(messages, **kwargs):  # type: ignore[no-untyped-def]
+            prompts.append(messages[0]["content"])
+            return _make_response("1 8\n")
+
+        with patch("scholar_agent.engine.rerank.chat", side_effect=fake_chat):
+            rerank("query", candidates, top_k=1)
+
+        self.assertIn("retrieval snippet content", prompts[0])
+        self.assertNotIn("full indexed content", prompts[0])
+        self.assertNotIn("/tmp/fallback.md", prompts[0])
 
     def test_batched_falls_back_when_parse_incomplete(self) -> None:
         # Batched response missing most lines → fallback to per-candidate

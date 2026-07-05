@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1531%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1554%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -168,7 +168,7 @@ pip install -e .
 scholar-agent init
 ```
 
-一条命令创建 Scholar home、知识数据目录、写入配置、注册 MCP 到 Claude Code。搞定。
+一条命令创建 Scholar home、知识数据目录、写入配置、注册 MCP 到 Claude Code。用 `scholar-agent init --host all` 可以一次注册 Claude Code、VS Code Copilot 和 OpenCode。初始化后建议运行 `scholar-agent doctor --format text` 确认环境。
 
 ### 模式
 
@@ -188,9 +188,11 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 - **VS Code Copilot** — `scholar-agent install vscode --write`
 - **OpenCode** — `scholar-agent install opencode --write`
 
-**核心工具**（始终可用）：`query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph`
+**核心工具**（始终可用）：`query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge`
 
 **学术工具**（设置 `SCHOLAR_ACADEMIC=1` 启用）：`search_papers` · `search_conf_papers` · `download_paper` · `analyze_paper` · `extract_paper_images` · `paper_to_card` · `daily_recommend` · `link_paper_keywords`
+
+`save_research` 启用来源门禁：必须提供非空 `sources` 数组，并让每个 `supporting_claims[].evidence_ids` 引用来源。没有来源的对话沉淀请用 `capture_answer`。URL 摄取和 `fetch_url` 会把一手来源快照存到 `knowledge/_snapshots/`；这些内部快照不会进入卡片索引和治理扫描。
 
 <details>
 <summary>Claude Desktop MCP 配置示例</summary>
@@ -225,9 +227,12 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 |------|------|
 | `scholar-agent init` | 一键设置：Scholar home + 知识数据目录 + 配置 + MCP 注册 |
 | `scholar-agent serve-mcp` | 启动 MCP 服务器 |
-| `scholar-agent doctor` | 查看环境与配置诊断信息 |
+| `scholar-agent doctor --format text --host all` | 查看环境与 MCP 宿主注册诊断信息 |
+| `scholar-agent health` | 只读项目健康摘要：配置、索引、陈旧卡片、重复卡片、断链 |
 | `scholar-agent config show` | 显示解析后的配置 |
 | `scholar-agent index --build-embedding-index` | 构建/重建搜索索引；该标志启用混合检索 |
+| `scholar-agent scan-stale --refresh` | 报告陈旧卡片，并可刷新来源快照 |
+| `scholar-agent report-dangling` | 报告 notes 和知识卡片中的悬空 `[[wikilinks]]` |
 | `scholar-agent install claude --write` | 注册 MCP 到 Claude Code |
 | `scholar-agent install vscode --write` | 注册 MCP 到 VS Code Copilot |
 | `scholar-agent install opencode --write` | 注册 MCP 到 OpenCode |
@@ -304,7 +309,7 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 ```bash
 make dev       # 安装开发依赖 + pre-commit hooks
 make lint      # 运行 ruff + mypy
-make test      # 运行离线测试（当前收集 1531 个测试；耗时因机器而异）
+make test      # 运行离线测试（当前收集 1554 个测试；耗时因机器而异）
 make coverage  # 运行测试并生成覆盖率报告
 make build     # 构建分发包
 make check-dist # 构建并验证 sdist/wheel 内容

@@ -15,11 +15,30 @@ from scholar_agent.engine.knowledge_lifecycle import (
     _card_signature,
     _normalize_for_comparison,
     detect_duplicates,
+    scan_knowledge_dir,
     transition_card,
     validate_card,
 )
 
 # ── validate_card ──────────────────────────────────────────────────
+
+
+class TestScanKnowledgeDir(unittest.TestCase):
+    def test_skips_internal_snapshot_cards(self):
+        import tempfile
+        from pathlib import Path
+
+        root = Path(tempfile.mkdtemp(prefix="knowledge_scan_"))
+        real = root / "domain" / "real.md"
+        real.parent.mkdir(parents=True)
+        real.write_text("---\nid: real\ntitle: Real\n---\nBody\n", encoding="utf-8")
+        snap = root / "_snapshots" / "source.md"
+        snap.parent.mkdir(parents=True)
+        snap.write_text("---\nid: snapshot\ntitle: Snapshot\n---\nArchived source\n", encoding="utf-8")
+
+        cards = scan_knowledge_dir(root)
+
+        self.assertEqual(["real"], [card["id"] for card in cards])
 
 
 class TestValidateCardValid(unittest.TestCase):

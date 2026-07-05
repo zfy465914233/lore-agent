@@ -13,7 +13,13 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
-from scholar_agent.engine.common import atomic_write_text, extract_wiki_links, parse_frontmatter, resolve_link_target
+from scholar_agent.engine.common import (
+    atomic_write_text,
+    extract_wiki_links,
+    is_reserved_knowledge_path,
+    parse_frontmatter,
+    resolve_link_target,
+)
 from scholar_agent.engine.scholar_config import get_index_path, get_knowledge_dir
 
 logger = logging.getLogger(__name__)
@@ -102,7 +108,7 @@ def build_search_text(metadata: dict[str, object], body: str) -> str:
 
 
 def is_card(path: Path) -> bool:
-    if "templates" in path.parts or path.name.lower() == "readme.md" or not path.is_file():
+    if is_reserved_knowledge_path(path) or not path.is_file():
         return False
     try:
         with path.open("r", encoding="utf-8") as f:

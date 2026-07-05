@@ -22,6 +22,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from scholar_agent.engine.common import is_reserved_knowledge_path
 from scholar_agent.engine.common import parse_frontmatter as _parse_frontmatter
 
 if TYPE_CHECKING:
@@ -51,7 +52,15 @@ VALID_TRANSITIONS: dict[LifecycleState, set[LifecycleState]] = {
 
 CARD_TYPES = {"knowledge", "method", "engineering"}
 CONFIDENCE_LEVELS = {"draft", "confirmed", "likely", "unknown", "reviewed"}
-ORIGINS = {"local_seed", "manual_web_research", "web_research_with_synthesis", "distilled", "promoted", "imported"}
+ORIGINS = {
+    "local_seed",
+    "manual_web_research",
+    "web_research_with_synthesis",
+    "distilled",
+    "promoted",
+    "promoted_from_distilled_note",
+    "imported",
+}
 
 # F4: domain-specific freshness thresholds (years). Fast-moving fields
 # (AI/ML) decay quickly; slow fields (history/math) stay valid much longer.
@@ -165,7 +174,7 @@ def validate_card(metadata: dict[str, Any]) -> list[CardIssue]:
             issues.append(CardIssue("warning", field, f"Missing recommended field: {field}"))
 
     # Warn if no review_status but origin is promoted/distilled
-    if not review_status and metadata.get("origin") in {"promoted", "distilled"}:
+    if not review_status and metadata.get("origin") in {"promoted", "distilled", "promoted_from_distilled_note"}:
         issues.append(CardIssue("warning", "review_status", "Promoted/distilled cards should have review_status."))
 
     return issues
@@ -297,7 +306,7 @@ def scan_knowledge_dir(knowledge_root: Path) -> list[dict[str, Any]]:
     """Scan a knowledge directory and return all card metadata."""
     cards: list[dict[str, Any]] = []
     for path in knowledge_root.rglob("*.md"):
-        if "templates" in path.parts or path.name.lower() == "readme.md":
+        if is_reserved_knowledge_path(path):
             continue
         raw = path.read_text(encoding="utf-8")
         if not raw.startswith("---\n"):

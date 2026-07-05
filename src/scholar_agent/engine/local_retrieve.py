@@ -240,17 +240,22 @@ def retrieve_hybrid(
             )
         return results
 
-    # Normalize and blend scores
+    doc_by_id: dict[str, dict] = {}
+    for doc in documents:
+        doc_by_id[doc["doc_id"]] = doc
+
+    # Normalize and blend scores. Embedding indexes can be older than the BM25
+    # index; never emit doc_ids that are no longer present in the current index.
+    stale_embedding_ids = set(emb_scores) - set(doc_by_id)
+    if stale_embedding_ids:
+        logger.warning("dropping %d stale embedding doc_id(s)", len(stale_embedding_ids))
+    emb_scores = {doc_id: score for doc_id, score in emb_scores.items() if doc_id in doc_by_id}
     norm_bm25 = _normalize_scores(bm25_scores)
     norm_emb = _normalize_scores(emb_scores)
 
     # Collect all candidate doc_ids
-    all_ids = set(bm25_scores) | set(emb_scores)
+    all_ids = (set(bm25_scores) | set(emb_scores)) & set(doc_by_id)
     emb_weight = 1.0 - bm25_weight
-
-    doc_by_id: dict[str, dict] = {}
-    for doc in documents:
-        doc_by_id[doc["doc_id"]] = doc
 
     # Find matched terms from BM25
     matched_terms_map: dict[str, set[str]] = {}

@@ -21,6 +21,7 @@ from scholar_agent.config.loader import resolve_config
 from scholar_agent.config.manager import initialize_user_home, migrate_to_user_home
 from scholar_agent.config.paths import get_user_config_path, get_user_home
 from scholar_agent.engine import scholar_config
+from scholar_agent.engine.common import is_reserved_knowledge_path
 from scholar_agent.installers import claude as claude_installer
 from scholar_agent.installers import opencode as opencode_installer
 from scholar_agent.installers import vscode as vscode_installer
@@ -125,6 +126,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=("json", "text"),
         default="json",
+        help="Output format for the report.",
+    )
+    doctor_parser.add_argument(
+        "--host",
+        choices=("claude", "vscode", "opencode", "all"),
+        default="all",
+        help="MCP host registration status to inspect (default: all).",
+    )
+
+    health_parser = subparsers.add_parser(
+        "health",
+        help="Run a read-only project health summary across config, index, and knowledge quality.",
+    )
+    health_parser.add_argument(
+        "--format",
+        choices=("json", "text"),
+        default="text",
         help="Output format for the report.",
     )
 
@@ -516,7 +534,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _doctor_payload() -> dict[str, Any]:
+def _doctor_payload(host: str = "all") -> dict[str, Any]:
     config_file = scholar_config.get_config_file_path()
     knowledge_dir = Path(scholar_config.get_knowledge_dir())
     index_path = Path(scholar_config.get_index_path())
@@ -544,15 +562,29 @@ def _doctor_payload() -> dict[str, Any]:
     # Knowledge cards count
     card_count = 0
     if knowledge_dir.exists():
-        card_count = sum(1 for _ in knowledge_dir.rglob("*.md"))
+        card_count = sum(1 for path in knowledge_dir.rglob("*.md") if not is_reserved_knowledge_path(path))
 
-    # MCP registration (Claude) — try CLI first, then direct-read fallback
-    claude_registered = False
-    try:
-        result = claude_installer.get_install_status()
-        claude_registered = bool(result.get("installed", False))
-    except Exception:
-        pass
+    selected_hosts = ["claude", "vscode", "opencode"] if host == "all" else [host]
+    mcp_hosts: dict[str, dict[str, object]] = {}
+    for selected in selected_hosts:
+        try:
+            status_payload = _status_install_payload(host=selected, path="", scope="user")
+            mcp_hosts[selected] = {
+                "status": status_payload.get("status", "unknown"),
+                "host": selected,
+                "installed": bool(status_payload.get("installed", False)),
+                "method": status_payload.get("method"),
+                "path": status_payload.get("path") or status_payload.get("config_path"),
+                "scope": status_payload.get("scope"),
+            }
+        except Exception as exc:
+            mcp_hosts[selected] = {
+                "status": "error",
+                "host": selected,
+                "installed": False,
+                "message": str(exc),
+            }
+    claude_registered = bool(mcp_hosts.get("claude", {}).get("installed", False))
 
     # Executable resolution — verify scholar-agent module is importable
     module_runnable = importlib.util.find_spec("scholar_agent.cli") is not None
@@ -581,6 +613,8 @@ def _doctor_payload() -> dict[str, Any]:
         },
         "mcp": {
             "claude_registered": claude_registered,
+            "requested_host": host,
+            "hosts": mcp_hosts,
         },
         "executable": {
             "scholar_agent_on_path": exe_on_path is not None,
@@ -630,11 +664,29 @@ def _format_doctor_text(payload: dict[str, object]) -> str:
     if isinstance(mcp, dict):
         lines.append("")
         lines.append("MCP Registration:")
-        claude_ok = mcp.get("claude_registered", False)
-        icon = "registered" if claude_ok else "NOT registered"
-        lines.append(f"  claude: {icon}")
-        if not claude_ok:
-            problems.append("Claude Code MCP not registered. Run: scholar-agent init")
+        hosts = mcp.get("hosts", {})
+        requested_host = str(mcp.get("requested_host") or "claude")
+        if isinstance(hosts, dict) and hosts:
+            for host_name in ("claude", "vscode", "opencode"):
+                host_info = hosts.get(host_name)
+                if not isinstance(host_info, dict):
+                    continue
+                installed = bool(host_info.get("installed", False))
+                if host_info.get("status") == "error":
+                    state = f"ERROR ({host_info.get('message', 'unknown error')})"
+                else:
+                    state = "registered" if installed else "not registered"
+                detail = host_info.get("path") or host_info.get("scope") or host_info.get("method")
+                suffix = f" [{detail}]" if detail else ""
+                lines.append(f"  {host_name}: {state}{suffix}")
+                if requested_host != "all" and not installed:
+                    problems.append(f"{host_name} MCP not registered. Run: scholar-agent install {host_name} --write")
+        else:
+            claude_ok = mcp.get("claude_registered", False)
+            icon = "registered" if claude_ok else "NOT registered"
+            lines.append(f"  claude: {icon}")
+            if not claude_ok:
+                problems.append("Claude Code MCP not registered. Run: scholar-agent init")
 
     # Executable resolution
     exe_info = payload.get("executable", {})
@@ -701,8 +753,8 @@ def _format_doctor_text(payload: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _run_doctor(output_format: str) -> int:
-    payload = _doctor_payload()
+def _run_doctor(output_format: str, host: str = "all") -> int:
+    payload = _doctor_payload(host=host)
     _print_payload(payload, output_format, text_formatter=_format_doctor_text)
     checks = payload.get("checks", [])
     has_problem = any(
@@ -711,7 +763,172 @@ def _run_doctor(output_format: str) -> int:
     deps = payload.get("dependencies", {})
     if isinstance(deps, dict) and not all(deps.values()):
         has_problem = True
+    mcp = payload.get("mcp", {})
+    if isinstance(mcp, dict) and host != "all":
+        hosts = mcp.get("hosts", {})
+        if isinstance(hosts, dict):
+            host_status = hosts.get(host, {})
+            if isinstance(host_status, dict) and not host_status.get("installed", False):
+                has_problem = True
     return 1 if has_problem else 0
+
+
+def _health_payload() -> dict[str, Any]:
+    from scholar_agent.engine.academic.note_linker import find_dangling_links
+    from scholar_agent.engine.knowledge_lifecycle import detect_duplicates, scan_knowledge_dir
+
+    knowledge_dir = Path(scholar_config.get_knowledge_dir())
+    index_path = Path(scholar_config.get_index_path())
+    embedding_path = index_path.parent / "embeddings.json"
+
+    index_exists = index_path.exists()
+    index_valid = False
+    index_documents = 0
+    if index_exists:
+        try:
+            index_data = json.loads(index_path.read_text(encoding="utf-8"))
+            documents = index_data.get("documents", [])
+            index_documents = len(documents) if isinstance(documents, list) else 0
+            index_valid = index_documents > 0
+        except Exception:
+            index_valid = False
+
+    cards = scan_knowledge_dir(knowledge_dir) if knowledge_dir.exists() else []
+    duplicates = detect_duplicates(cards) if len(cards) >= 2 else []
+    stale_cards = _scan_stale_cards(knowledge_dir) if knowledge_dir.exists() else []
+
+    dangling: list[dict[str, Any]] = []
+    try:
+        notes_dirs = [str(scholar_config.get_paper_notes_dir())]
+        dangling = find_dangling_links(notes_dirs, knowledge_dir=str(knowledge_dir))
+    except Exception:
+        dangling = []
+
+    warnings: list[str] = []
+    if not knowledge_dir.exists():
+        warnings.append("knowledge_dir_missing")
+    if not index_exists:
+        warnings.append("index_missing")
+    elif not index_valid:
+        warnings.append("index_empty_or_invalid")
+    if stale_cards:
+        warnings.append("stale_cards_present")
+    if duplicates:
+        warnings.append("possible_duplicates_present")
+    if dangling:
+        warnings.append("dangling_links_present")
+
+    return {
+        "status": "ok" if not warnings else "warn",
+        "warnings": warnings,
+        "config": {
+            "mode": scholar_config.detect_runtime_mode(),
+            "config_file": str(scholar_config.get_config_file_path())
+            if scholar_config.get_config_file_path() is not None
+            else None,
+            "knowledge_dir": str(knowledge_dir),
+            "index_path": str(index_path),
+        },
+        "index": {
+            "exists": index_exists,
+            "valid": index_valid,
+            "documents": index_documents,
+            "embedding_index_exists": embedding_path.exists(),
+            "embedding_index_path": str(embedding_path),
+        },
+        "knowledge": {
+            "cards": len(cards),
+            "stale_count": len(stale_cards),
+            "duplicate_count": len(duplicates),
+            "dangling_count": len(dangling),
+        },
+        "samples": {
+            "stale": stale_cards[:10],
+            "duplicates": [
+                {
+                    "left": cards[a].get("id", f"card_{a}") if a < len(cards) else f"card_{a}",
+                    "right": cards[b].get("id", f"card_{b}") if b < len(cards) else f"card_{b}",
+                    "score": score,
+                    "reason": reason,
+                }
+                for a, b, score, reason in duplicates[:10]
+            ],
+            "dangling": dangling[:10],
+        },
+    }
+
+
+def _format_health_text(payload: dict[str, object]) -> str:
+    lines = ["Scholar Agent Health", "====================", ""]
+
+    status = payload.get("status", "unknown")
+    warnings = payload.get("warnings", [])
+    lines.append(f"status: {status}")
+    if isinstance(warnings, list) and warnings:
+        lines.append("warnings:")
+        for warning in warnings:
+            lines.append(f"  - {warning}")
+    else:
+        lines.append("warnings: []")
+
+    config = payload.get("config", {})
+    if isinstance(config, dict):
+        lines.append("")
+        lines.append("Config:")
+        lines.append(f"  mode: {config.get('mode')}")
+        lines.append(f"  config_file: {config.get('config_file')}")
+        lines.append(f"  knowledge_dir: {config.get('knowledge_dir')}")
+        lines.append(f"  index_path: {config.get('index_path')}")
+
+    index = payload.get("index", {})
+    if isinstance(index, dict):
+        lines.append("")
+        lines.append("Index:")
+        lines.append(f"  exists: {index.get('exists')}")
+        lines.append(f"  valid: {index.get('valid')}")
+        lines.append(f"  documents: {index.get('documents')}")
+        lines.append(f"  embedding_index_exists: {index.get('embedding_index_exists')}")
+
+    knowledge = payload.get("knowledge", {})
+    if isinstance(knowledge, dict):
+        lines.append("")
+        lines.append("Knowledge:")
+        lines.append(f"  cards: {knowledge.get('cards')}")
+        lines.append(f"  stale: {knowledge.get('stale_count')}")
+        lines.append(f"  possible duplicates: {knowledge.get('duplicate_count')}")
+        lines.append(f"  dangling links: {knowledge.get('dangling_count')}")
+
+    samples = payload.get("samples", {})
+    if isinstance(samples, dict):
+        stale = samples.get("stale", [])
+        duplicates = samples.get("duplicates", [])
+        dangling = samples.get("dangling", [])
+        if stale:
+            lines.append("")
+            lines.append("Stale Samples:")
+            for item in stale[:5] if isinstance(stale, list) else []:
+                if isinstance(item, dict):
+                    lines.append(f"  - {item.get('path')} ({item.get('days_stale')} days)")
+        if duplicates:
+            lines.append("")
+            lines.append("Duplicate Samples:")
+            for item in duplicates[:5] if isinstance(duplicates, list) else []:
+                if isinstance(item, dict):
+                    lines.append(f"  - {item.get('left')} <-> {item.get('right')} ({item.get('reason')})")
+        if dangling:
+            lines.append("")
+            lines.append("Dangling Samples:")
+            for item in dangling[:5] if isinstance(dangling, list) else []:
+                if isinstance(item, dict):
+                    lines.append(f"  - {item.get('file')}: {item.get('link')}")
+
+    return "\n".join(lines)
+
+
+def _run_health(output_format: str) -> int:
+    payload = _health_payload()
+    _print_payload(payload, output_format, text_formatter=_format_health_text)
+    return 0
 
 
 def _config_show_payload() -> dict[str, Any]:
@@ -959,15 +1176,18 @@ def _run_init(
                 register_results.append({"status": "error", "host": h, "message": f"Unexpected error: {exc}"})
 
     if output_format == "json":
+        registration_failed = any(r.get("status") == "error" for r in register_results)
         payload: dict[str, object] = {
             **init_result,
+            "status": "partial_ok" if registration_failed else init_result.get("status", "ok"),
             "index_built": index_built,
             "registration": register_results,
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
+        registration_failed = any(r.get("status") == "error" for r in register_results)
         print()
-        print("=== Scholar Agent Setup Complete ===")
+        print("=== Scholar Agent Setup Partial ===" if registration_failed else "=== Scholar Agent Setup Complete ===")
         print()
         config = scholar_config.load_config()
         knowledge_dir = Path(str(config["knowledge_dir"]))
@@ -1018,7 +1238,8 @@ def _run_init(
         print()
         print("Next steps:")
         print(f"  Edit {user_home / 'config' / 'config.json'} to add your research interests")
-        print("  scholar-agent doctor          - Check your setup")
+        print("  scholar-agent doctor --format text  - Check your setup")
+        print("  scholar-agent health                - Check knowledge/index health")
         print("  scholar-agent config show     - Show resolved config")
         print()
 
@@ -1394,7 +1615,7 @@ def _scan_stale_cards(
 
     stale: list[dict[str, Any]] = []
     for path in sorted(knowledge_root.rglob("*.md")):
-        if "templates" in path.parts or path.name.lower() == "readme.md":
+        if is_reserved_knowledge_path(path):
             continue
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
@@ -1740,7 +1961,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_format=args.format,
         )
     if command == "doctor":
-        return _run_doctor(args.format)
+        return _run_doctor(args.format, host=args.host)
+    if command == "health":
+        return _run_health(args.format)
     if command == "config":
         if args.config_command == "show":
             return _run_config_show(args.format)

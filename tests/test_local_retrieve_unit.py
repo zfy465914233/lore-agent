@@ -191,6 +191,35 @@ class TestRetrieveHybrid(unittest.TestCase):
             sources = {r["source"] for r in results}
             self.assertTrue(sources.intersection({"hybrid", "bm25"}))
 
+    def test_hybrid_drops_stale_embedding_doc_ids(self) -> None:
+        """Embedding indexes can lag the BM25 index; stale ids must not surface."""
+        import types
+
+        docs = [
+            {
+                "doc_id": "known",
+                "title": "Known Card",
+                "path": "/tmp/known.md",
+                "type": "knowledge",
+                "topic": "testing",
+                "search_text": "alpha beta",
+            }
+        ]
+        mock_module = types.ModuleType("scholar_agent.engine.embedding_retrieve")
+        mock_module.retrieve_by_embedding = lambda query, index, k: [("stale", 1.0), ("known", 0.5)]
+
+        with patch.dict("sys.modules", {"scholar_agent.engine.embedding_retrieve": mock_module}):
+            results = retrieve_hybrid(
+                "unmatched-query",
+                docs,
+                embedding_index={"some": "data"},
+                bm25_weight=0.5,
+                limit=5,
+            )
+
+        self.assertEqual(["known"], [r["doc_id"] for r in results])
+        self.assertEqual("Known Card", results[0]["title"])
+
     def test_hybrid_limit_respected(self) -> None:
         docs = _make_documents(10)
         results = retrieve_hybrid(

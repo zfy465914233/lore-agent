@@ -49,6 +49,7 @@ except ImportError:  # pragma: no cover - numpy is a transitive dep
 
 _DEFAULT_LOCAL_MODEL = "all-MiniLM-L6-v2"
 _DEFAULT_API_MODEL = "text-embedding-3-small"
+_EMBEDDING_INDEX_SCHEMA_VERSION = 2
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def _get_local_model() -> Any:
 # Plain dict keyed on query text; insertion order gives us LRU eviction for
 # free. We avoid functools.lru_cache here because embed_query can return []
 # on backend failure and we want to retry rather than cache the miss.
-_query_cache: dict[str, list[float]] = {}
+_query_cache: dict[tuple[str, str, str], list[float]] = {}
 _QUERY_CACHE_MAX = 128
 
 
@@ -151,7 +152,8 @@ def embed_query(query: str) -> list[float]:
     identical queries skip the underlying ``embed_texts`` call. Clear with
     :func:`clear_embed_cache` (e.g. when the embedding backend changes).
     """
-    cached = _query_cache.get(query)
+    cache_key = (_get_backend(), _get_model(), query)
+    cached = _query_cache.get(cache_key)
     if cached is not None:
         return cached
     result = embed_texts([query])
@@ -161,7 +163,7 @@ def embed_query(query: str) -> list[float]:
         if len(_query_cache) >= _QUERY_CACHE_MAX:
             # Drop oldest entry (Python 3.7+ dict preserves insertion order)
             _query_cache.pop(next(iter(_query_cache)))
-        _query_cache[query] = embedding
+        _query_cache[cache_key] = embedding
     return embedding
 
 
@@ -190,6 +192,33 @@ def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _embedding_dimension(embeddings: Any) -> int | None:
+    if not isinstance(embeddings, list):
+        return None
+    for embedding in embeddings:
+        if isinstance(embedding, list) and embedding:
+            return len(embedding)
+    return None
+
+
+def _can_reuse_existing_index(existing_index: dict[str, Any], *, backend: str, model: str) -> bool:
+    """Return True when old embeddings live in the current vector space."""
+    if existing_index.get("schema_version") != _EMBEDDING_INDEX_SCHEMA_VERSION:
+        return False
+    if existing_index.get("backend") != backend or existing_index.get("model") != model:
+        return False
+
+    declared_dimension = existing_index.get("dimension")
+    actual_dimension = _embedding_dimension(existing_index.get("embeddings", []))
+    if declared_dimension is None:
+        return actual_dimension is None
+    try:
+        declared = int(declared_dimension)
+    except (TypeError, ValueError):
+        return False
+    return actual_dimension is None or declared == actual_dimension
+
+
 def build_embedding_index(documents: list[dict], existing_index: dict[str, Any] | None = None) -> dict[str, Any]:
     """Compute embeddings for all documents and return an embedding index.
 
@@ -201,14 +230,18 @@ def build_embedding_index(documents: list[dict], existing_index: dict[str, Any] 
     ``text_hashes`` map for the next call; the field is additive, so older
     readers that only know ``doc_ids`` / ``embeddings`` are unaffected.
     """
+    backend = _get_backend()
+    model = _get_model()
     doc_ids = [str(doc.get("doc_id", "")) for doc in documents]
     texts = [str(doc.get("search_text", "")) for doc in documents]
     hashes = [_text_hash(t) for t in texts]
 
     if not documents:
         return {
-            "model": _get_model(),
-            "backend": _get_backend(),
+            "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+            "model": model,
+            "backend": backend,
+            "dimension": None,
             "embeddings": [],
             "doc_ids": [],
             "text_hashes": {},
@@ -216,7 +249,7 @@ def build_embedding_index(documents: list[dict], existing_index: dict[str, Any] 
 
     prev_emb: dict[str, list[float]] = {}
     prev_hash: dict[str, str] = {}
-    if existing_index:
+    if existing_index and _can_reuse_existing_index(existing_index, backend=backend, model=model):
         prev_hash = dict(existing_index.get("text_hashes") or {})
         prev_ids = existing_index.get("doc_ids", [])
         prev_embs = existing_index.get("embeddings", [])
@@ -250,8 +283,10 @@ def build_embedding_index(documents: list[dict], existing_index: dict[str, Any] 
             all_embeddings.append([])
 
     return {
-        "model": _get_model(),
-        "backend": _get_backend(),
+        "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+        "model": model,
+        "backend": backend,
+        "dimension": _embedding_dimension(all_embeddings),
         "doc_ids": doc_ids,
         "embeddings": all_embeddings,
         "text_hashes": dict(zip(doc_ids, hashes, strict=True)),

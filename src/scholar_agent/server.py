@@ -8,6 +8,9 @@ Tools:
   - capture_answer: Capture a Q&A answer as a draft knowledge card
   - ingest_source: Ingest a URL or raw text into the knowledge base
   - build_graph: Build an interactive knowledge graph visualization
+  - validate_knowledge: Validate local knowledge cards without writing files
+  - lint_knowledge: Report content-level knowledge graph issues without writing files
+  - scan_stale_knowledge: Report stale cards without writing files
 
 Academic tools (set SCHOLAR_ACADEMIC=1 to enable):
   - search_papers: Search arXiv + Semantic Scholar with scoring
@@ -30,9 +33,10 @@ import importlib
 import json
 import logging
 import os
+import re
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -48,7 +52,12 @@ from scholar_agent.engine.close_knowledge_loop import (
     quality_score_answer_data,
     validate_answer_schema,
 )
-from scholar_agent.engine.common import sanitize_title
+from scholar_agent.engine.common import (
+    is_reserved_knowledge_path,
+    parse_frontmatter,
+    resolve_link_target,
+    sanitize_title,
+)
 from scholar_agent.engine.index_lifecycle import async_reindex as _async_reindex
 from scholar_agent.engine.index_lifecycle import ensure_ready as _ensure_index_ready
 from scholar_agent.engine.local_retrieve import retrieve
@@ -359,6 +368,21 @@ def save_research(query: str, answer_json: str, domain: str = "", language: str 
             indent=2,
         )
 
+    provenance_errors = _validate_research_provenance(answer_data)
+    if provenance_errors:
+        return json.dumps(
+            {
+                "error": "Provenance gate failed. save_research requires traceable sources and evidence-backed claims.",
+                "violations": provenance_errors,
+                "guidance": (
+                    "Add a non-empty sources array and cite those sources from each supporting_claim.evidence_ids. "
+                    "If this is an unsourced conversation capture, use capture_answer instead."
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
     # Build knowledge card
     try:
         # Pass language to answer_data so build_knowledge_card can write it to frontmatter
@@ -469,6 +493,23 @@ def _snapshot_sources(urls: list[str]) -> None:
                 _persist_snapshot(url, content_md, result.get("title", "") or "")
     except Exception:
         logger.warning("background source snapshot failed", exc_info=True)
+
+
+def _validate_research_provenance(answer_data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    sources = answer_data.get("sources") or answer_data.get("source_refs") or []
+    if not isinstance(sources, list) or not [str(source).strip() for source in sources if str(source).strip()]:
+        errors.append("sources must contain at least one source reference")
+
+    claims = answer_data.get("supporting_claims", [])
+    if isinstance(claims, list):
+        for index, claim in enumerate(claims):
+            if not isinstance(claim, dict):
+                continue
+            evidence_ids = claim.get("evidence_ids", [])
+            if not isinstance(evidence_ids, list) or not [str(eid).strip() for eid in evidence_ids if str(eid).strip()]:
+                errors.append(f"supporting_claims[{index}].evidence_ids must contain at least one evidence id")
+    return errors
 
 
 def _fetch_url_impl(url: str, max_chars: int = 6000) -> dict:
@@ -703,18 +744,22 @@ async def ingest_source(
         if not source or not source.strip():
             return json.dumps({"error": "source must not be empty"})
 
-        is_url = source.strip().startswith(("http://", "https://"))
+        source_value = source.strip()
+        is_url = source_value.startswith(("http://", "https://"))
+        snapshot_path = ""
+        captured_at = ""
 
         if is_url:
             from scholar_agent.engine.research_harness import fetch_content
 
-            result = fetch_content(source.strip())
+            result = fetch_content(source_value)
             if result["retrieval_status"] == "failed":
                 return json.dumps({"error": f"Failed to fetch URL: {result.get('failure_reason', 'unknown')}"})
             content = result["content_md"]
-            auto_title = result.get("title", "") or title or source.strip()[:80]
+            auto_title = result.get("title", "") or title or source_value[:80]
+            snapshot_path, captured_at = _persist_snapshot(source_value, content, auto_title)
         else:
-            content = source.strip()
+            content = source_value
             auto_title = title or content.split("\n")[0][:80]
 
         if not auto_title or not auto_title.strip():
@@ -737,6 +782,7 @@ async def ingest_source(
             answer_data["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
         if is_url:
             answer_data["tags"] = [*answer_data.get("tags", []), "ingested-url"]
+            answer_data["sources"] = [source_value]
 
         try:
             card_path = build_knowledge_card(
@@ -756,12 +802,228 @@ async def ingest_source(
                 "index_pending_refresh": True,
                 "source_type": "url" if is_url else "text",
                 "title": auto_title,
+                "snapshot_path": snapshot_path,
+                "captured_at": captured_at,
             },
             ensure_ascii=False,
             indent=2,
         )
 
     return await _run_blocking(_impl, tool_name="ingest_source", ctx=ctx)
+
+
+def _knowledge_cards_for_report() -> list[dict[str, Any]]:
+    from scholar_agent.engine.knowledge_lifecycle import scan_knowledge_dir
+
+    root = get_knowledge_dir()
+    if not root.exists():
+        return []
+    return scan_knowledge_dir(root)
+
+
+def _scan_domain_stale_cards(knowledge_root: Path, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    from scholar_agent.engine.knowledge_lifecycle import _freshness_years_for
+
+    current = now or datetime.now()
+    stale: list[dict[str, Any]] = []
+    for path in sorted(knowledge_root.rglob("*.md")):
+        if is_reserved_knowledge_path(path):
+            continue
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not raw.startswith("---\n"):
+            continue
+        meta, _body = parse_frontmatter(raw)
+        source_date = meta.get("source_date") or meta.get("updated_at")
+        if not source_date:
+            continue
+        match = re.search(r"\d{4}", str(source_date))
+        if not match:
+            continue
+        source_year = int(match.group())
+        threshold = _freshness_years_for(meta.get("domain"))
+        years_elapsed = current.year - source_year
+        if years_elapsed <= threshold:
+            continue
+        stale.append(
+            {
+                "path": str(path),
+                "id": meta.get("id", ""),
+                "title": meta.get("title", ""),
+                "domain": meta.get("domain", ""),
+                "source_year": source_year,
+                "threshold_years": threshold,
+                "days_stale": round((years_elapsed - threshold) * 365.25),
+            }
+        )
+    return stale
+
+
+def _lint_knowledge_payload(stale_days: int = 90) -> dict[str, Any]:
+    cards = _knowledge_cards_for_report()
+    card_ids = {str(card.get("id", "")) for card in cards if card.get("id")}
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
+
+    outgoing: dict[str, set[str]] = {}
+    incoming: dict[str, set[str]] = {}
+    broken_links: list[dict[str, Any]] = []
+    stale_cards: list[dict[str, Any]] = []
+
+    for card in cards:
+        cid = str(card.get("id", ""))
+        path = str(card.get("_path", ""))
+        body = ""
+        if path:
+            try:
+                raw = Path(path).read_text(encoding="utf-8", errors="replace")
+                _meta, body = parse_frontmatter(raw) if raw.startswith("---\n") else ({}, raw)
+            except OSError:
+                body = ""
+
+        targets = set(re.findall(r"\[\[([^\]]+)\]\]", body))
+        outgoing[cid] = targets
+        for target in targets:
+            resolved = resolve_link_target(target, card_ids)
+            if resolved is None:
+                broken_links.append({"source_id": cid, "target": target, "path": path})
+            else:
+                incoming.setdefault(resolved, set()).add(cid)
+
+        updated_at = str(card.get("updated_at", "") or "")
+        if not updated_at:
+            if card.get("confidence") != "draft" and card.get("review_status") != "draft":
+                stale_cards.append({"id": cid, "title": card.get("title", ""), "path": path, "updated_at": ""})
+            continue
+        try:
+            updated_dt = datetime.strptime(updated_at[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if updated_dt < stale_cutoff:
+            stale_cards.append({"id": cid, "title": card.get("title", ""), "path": path, "updated_at": updated_at})
+
+    orphans = [
+        {
+            "id": card.get("id", ""),
+            "title": card.get("title", ""),
+            "path": card.get("_path", ""),
+        }
+        for card in cards
+        if card.get("id") and not outgoing.get(str(card.get("id", ""))) and str(card.get("id", "")) not in incoming
+    ]
+
+    title_overlaps: list[dict[str, Any]] = []
+    titled = [
+        (str(card.get("id", "")), str(card.get("title", "")).lower().split()) for card in cards if card.get("title")
+    ]
+    for index, (id_a, words_a) in enumerate(titled):
+        for id_b, words_b in titled[index + 1 :]:
+            if not words_a or not words_b:
+                continue
+            left, right = set(words_a), set(words_b)
+            score = len(left & right) / len(left | right) if left | right else 0
+            if score > 0.6:
+                title_overlaps.append({"id_a": id_a, "id_b": id_b, "jaccard": round(score, 3)})
+
+    issue_count = len(orphans) + len(broken_links) + len(stale_cards) + len(title_overlaps)
+    return {
+        "status": "ok" if issue_count == 0 else "issues",
+        "knowledge_dir": str(get_knowledge_dir()),
+        "total": len(cards),
+        "issue_count": issue_count,
+        "issues": {
+            "orphans": orphans,
+            "broken_links": broken_links,
+            "stale": stale_cards,
+            "title_overlaps": title_overlaps,
+        },
+    }
+
+
+@tool
+def validate_knowledge(verbose: bool = False) -> str:
+    """Validate local knowledge cards without modifying files.
+
+    Runs card frontmatter validation plus body-density/source-freshness checks.
+    Use this before relying on a knowledge base or after bulk imports.
+
+    Args:
+        verbose: When true, include warning-only cards in the per-card report.
+    """
+    from scholar_agent.engine.knowledge_lifecycle import validate_card_quality
+
+    cards = _knowledge_cards_for_report()
+    total_errors = 0
+    total_warnings = 0
+    reports: list[dict[str, Any]] = []
+    for card in cards:
+        path = str(card.get("_path", ""))
+        quality = validate_card_quality(path) if path else {"errors": [], "warnings": []}
+        errors = quality.get("errors", [])
+        warnings = quality.get("warnings", [])
+        total_errors += len(errors)
+        total_warnings += len(warnings)
+        if errors or (verbose and warnings):
+            reports.append(
+                {
+                    "id": card.get("id", ""),
+                    "title": card.get("title", ""),
+                    "path": path,
+                    "errors": errors,
+                    "warnings": warnings,
+                }
+            )
+
+    return json.dumps(
+        {
+            "status": "ok" if total_errors == 0 else "error",
+            "knowledge_dir": str(get_knowledge_dir()),
+            "total": len(cards),
+            "errors": total_errors,
+            "warnings": total_warnings,
+            "cards": reports,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@tool
+def lint_knowledge(stale_days: int = 90) -> str:
+    """Run read-only content health checks over the local knowledge base.
+
+    Reports orphan cards, broken wiki-links, cards not updated within
+    stale_days, and highly overlapping titles. This tool never edits files.
+
+    Args:
+        stale_days: Age threshold in days for the updated_at lint check.
+    """
+    if not isinstance(stale_days, int) or stale_days < 1:
+        return json.dumps({"error": "stale_days must be a positive integer"})
+    return json.dumps(_lint_knowledge_payload(stale_days=stale_days), ensure_ascii=False, indent=2)
+
+
+@tool
+def scan_stale_knowledge() -> str:
+    """Report knowledge cards whose source freshness exceeds domain thresholds.
+
+    Unlike lint_knowledge's updated_at check, this uses source_date/captured
+    year with the domain-specific freshness policy used by card validation.
+    This tool is read-only.
+    """
+    root = get_knowledge_dir()
+    stale = _scan_domain_stale_cards(root)
+    return json.dumps(
+        {
+            "status": "ok",
+            "knowledge_dir": str(root),
+            "stale_count": len(stale),
+            "stale": stale,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 @tool

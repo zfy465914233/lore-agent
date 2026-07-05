@@ -23,9 +23,13 @@ from scholar_agent.engine.close_knowledge_loop import (
 from scholar_agent.server import (
     _embedding_index_path,
     capture_answer,
+    ingest_source,
+    lint_knowledge,
     list_knowledge,
     query_knowledge,
     save_research,
+    scan_stale_knowledge,
+    validate_knowledge,
 )
 
 # Force config to always resolve to scholar-agent's own directories
@@ -111,10 +115,11 @@ class SaveResearchTest(unittest.TestCase):
     def test_save_valid_research(self) -> None:
         answer = {
             "answer": "This is a test answer that is long enough to pass the quality gate threshold of 200 characters. It includes substantive content about testing the save_research function in the MCP server, including validation and card building.",
+            "sources": ["local:test-source"],
             "supporting_claims": [
                 {
                     "claim": "The save_research function creates knowledge cards from structured JSON data",
-                    "evidence_ids": ["e1"],
+                    "evidence_ids": ["local:test-source"],
                     "confidence": "high",
                 },
             ],
@@ -150,10 +155,11 @@ class SaveResearchTest(unittest.TestCase):
                 "save_research should trigger an async reindex of the knowledge "
                 "base so newly written cards become searchable immediately."
             ),
+            "sources": ["local:reindex-trigger"],
             "supporting_claims": [
                 {
                     "claim": "save_research writes the card then calls _async_reindex to refresh the index",
-                    "evidence_ids": ["e1"],
+                    "evidence_ids": ["local:reindex-trigger"],
                     "confidence": "high",
                 },
             ],
@@ -238,6 +244,125 @@ class CaptureAnswerTest(unittest.TestCase):
         _cleanup_card(result["card_path"])
 
 
+class IngestSourceTest(unittest.TestCase):
+    def test_url_ingest_writes_source_refs_and_snapshot(self) -> None:
+        content = "# Example Article\n\n" + "This fetched article body is long enough to be useful. " * 8
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "knowledge"
+            index = Path(tmp) / "index.json"
+            with (
+                patch("scholar_agent.server.get_knowledge_dir", return_value=root),
+                patch("scholar_agent.server.get_index_path", return_value=index),
+                patch("scholar_agent.server._async_reindex"),
+                patch(
+                    "scholar_agent.engine.research_harness.fetch_content",
+                    return_value={
+                        "retrieval_status": "succeeded",
+                        "content_md": content,
+                        "title": "Example Article",
+                        "failure_reason": "",
+                        "images": [],
+                    },
+                ),
+            ):
+                result = json.loads(
+                    asyncio.run(ingest_source("https://example.com/article", tags="web, test", language="en"))
+                )
+
+            self.assertEqual("ok", result["status"])
+            self.assertEqual("url", result["source_type"])
+            self.assertTrue(result["snapshot_path"])
+            self.assertTrue(result["captured_at"])
+
+            card_text = Path(result["card_path"]).read_text(encoding="utf-8")
+            self.assertIn("source_refs:", card_text)
+            self.assertIn("https://example.com/article", card_text)
+            self.assertIn("ingested-url", card_text)
+
+            snapshot = Path(result["snapshot_path"])
+            self.assertTrue(snapshot.exists())
+            self.assertIn("https://example.com/article", snapshot.read_text(encoding="utf-8"))
+
+
+def _write_governance_card(
+    path: Path,
+    *,
+    card_id: str,
+    title: str = "Test Card",
+    updated_at: str = "2026-06-01",
+    source_date: str = "2026-06-01",
+    body: str = "",
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not body:
+        body = "This is a substantial body for governance validation. " * 8
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                f"id: {card_id}",
+                f"title: {title}",
+                "type: knowledge",
+                "topic: test",
+                "confidence: confirmed",
+                f"updated_at: {updated_at}",
+                "domain: ai",
+                f"source_date: {source_date}",
+                "source_refs:",
+                "  - https://example.com/source",
+                "---",
+                "",
+                body,
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+class KnowledgeGovernanceToolTest(unittest.TestCase):
+    def test_validate_knowledge_reports_schema_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_governance_card(root / "valid.md", card_id="valid-card")
+            bad = root / "bad.md"
+            bad.write_text(
+                "---\nid: bad-card\ntype: knowledge\ntopic: test\nconfidence: confirmed\nupdated_at: 2026-06-01\n---\n\nbody",
+                encoding="utf-8",
+            )
+            with patch("scholar_agent.server.get_knowledge_dir", return_value=root):
+                result = json.loads(validate_knowledge(verbose=True))
+        self.assertEqual("error", result["status"])
+        self.assertEqual(2, result["total"])
+        self.assertGreater(result["errors"], 0)
+        self.assertTrue(any(card["id"] == "bad-card" for card in result["cards"]))
+
+    def test_lint_knowledge_reports_broken_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_governance_card(
+                root / "source.md",
+                card_id="source-card",
+                body="See [[missing-card]] for the comparison. " + "Extra detail. " * 20,
+            )
+            with patch("scholar_agent.server.get_knowledge_dir", return_value=root):
+                result = json.loads(lint_knowledge(stale_days=30))
+        self.assertEqual("issues", result["status"])
+        self.assertEqual(1, result["total"])
+        self.assertGreaterEqual(result["issue_count"], 1)
+        self.assertEqual("missing-card", result["issues"]["broken_links"][0]["target"])
+
+    def test_scan_stale_knowledge_skips_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_governance_card(root / "old.md", card_id="old-card", source_date="2020-01-01")
+            _write_governance_card(root / "_snapshots" / "old-source.md", card_id="snapshot", source_date="2020-01-01")
+            with patch("scholar_agent.server.get_knowledge_dir", return_value=root):
+                result = json.loads(scan_stale_knowledge())
+        self.assertEqual("ok", result["status"])
+        self.assertEqual(1, result["stale_count"])
+        self.assertEqual("old-card", result["stale"][0]["id"])
+
+
 class QualityGateTest(unittest.TestCase):
     """Tests for the quality gate enforcement on card creation."""
 
@@ -289,15 +414,16 @@ class QualityGateTest(unittest.TestCase):
             "supporting_claims": [
                 {
                     "claim": "Quality gates enforce minimum content standards on knowledge cards",
-                    "evidence_ids": ["e1"],
+                    "evidence_ids": ["local:quality-gate"],
                     "confidence": "high",
                 },
                 {
                     "claim": "The scoring function evaluates answer length, claim count, claim depth, and structural richness",
-                    "evidence_ids": ["e2"],
+                    "evidence_ids": ["local:quality-score"],
                     "confidence": "high",
                 },
             ],
+            "sources": ["local:quality-gate", "local:quality-score"],
             "inferences": ["Quality gates should reduce the number of thin, uninformative cards"],
             "uncertainty": ["Threshold values may need tuning based on real-world usage"],
             "suggested_next_steps": ["Monitor rejection rates and adjust thresholds"],
@@ -305,6 +431,55 @@ class QualityGateTest(unittest.TestCase):
         result = json.loads(save_research("quality answer test", json.dumps(answer)))
         self.assertEqual("ok", result["status"])
         _cleanup_card(result["card_path"])
+
+    def test_save_research_rejects_quality_answer_without_sources(self) -> None:
+        answer = {
+            "answer": (
+                "This is a high-quality answer with enough detail to pass the quality gate, but it intentionally "
+                "omits sources so the provenance gate should reject it before any card is written to disk. The "
+                "content explains why source tracking matters for later audits, link refreshes, evidence review, "
+                "and safe reuse by future research agents."
+            ),
+            "supporting_claims": [
+                {
+                    "claim": "The provenance gate requires every saved research card to cite traceable sources",
+                    "evidence_ids": ["local:missing-source"],
+                    "confidence": "high",
+                },
+            ],
+            "inferences": ["Unsourced research belongs in capture_answer, not save_research"],
+            "uncertainty": ["The user can add concrete sources and retry"],
+            "suggested_next_steps": ["Add a sources array with concrete source references"],
+        }
+        result = json.loads(save_research("missing sources test", json.dumps(answer)))
+        self.assertIn("error", result)
+        self.assertIn("Provenance gate failed", result["error"])
+        self.assertTrue(any("sources" in violation for violation in result["violations"]))
+
+    def test_save_research_rejects_claim_without_evidence_id(self) -> None:
+        answer = {
+            "answer": (
+                "This answer includes source references and enough substantive discussion to pass the quality gate, "
+                "but one supporting claim deliberately lacks evidence_ids so provenance validation must block the "
+                "save. The scenario represents a partially structured research result where the source list exists, "
+                "yet claim-level traceability is still incomplete."
+            ),
+            "sources": ["local:source-a"],
+            "supporting_claims": [
+                {
+                    "claim": "Every supporting claim should point back to at least one evidence id",
+                    "evidence_ids": [],
+                    "confidence": "high",
+                },
+            ],
+            "inferences": ["The card should not be persisted until evidence ids are attached"],
+            "uncertainty": ["The caller can repair the structured JSON and retry"],
+            "suggested_next_steps": ["Attach evidence_ids from the sources array"],
+        }
+        result = json.loads(save_research("missing evidence id test", json.dumps(answer)))
+        self.assertIn("error", result)
+        self.assertIn("Provenance gate failed", result["error"])
+        self.assertTrue(any("evidence_ids" in violation for violation in result["violations"]))
 
     def test_quality_score_calculation(self) -> None:
         # A fully-populated answer should score well

@@ -140,6 +140,12 @@ class TestScanStaleClassification(unittest.TestCase):
         stale = _scan_stale_cards(tmp, now=self.now)
         self.assertEqual(stale, [])
 
+    def test_snapshots_are_skipped(self):
+        tmp = Path(self.mkdtemp_safe())
+        _write_card(tmp / "_snapshots" / "source.md", domain="ai", source_date="2000-01-01")
+        stale = _scan_stale_cards(tmp, now=self.now)
+        self.assertEqual(stale, [])
+
     def test_days_stale_is_positive_and_reasonable(self):
         tmp = Path(self.mkdtemp_safe())
         _write_card(tmp / "ai_old.md", domain="ai", source_date="2020-01-01")

@@ -115,6 +115,9 @@ def test_retrieval_quality(benchmark_index: Path, benchmark_cases: list[dict]) -
     # to catch regressions. Tier 1/2/3 should raise these, not lower.
     assert mean_ndcg >= 0.85, f"mean nDCG@3 regressed below threshold: {mean_ndcg:.3f}"
     assert mean_recall >= 0.85, f"mean Recall@5 regressed below threshold: {mean_recall:.3f}"
+    for category, values in by_cat.items():
+        category_mean = statistics.mean(values)
+        assert category_mean >= 0.80, f"nDCG@3 for {category} regressed below threshold: {category_mean:.3f}"
 
 
 @pytest.mark.benchmark

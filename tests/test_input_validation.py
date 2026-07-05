@@ -85,10 +85,11 @@ class SaveResearchValidationTest(unittest.TestCase):
             "supporting_claims": [
                 {
                     "claim": "This is a test claim with enough substance to pass validation checks",
-                    "evidence_ids": ["e1"],
+                    "evidence_ids": ["local:validation-source"],
                     "confidence": "high",
                 }
             ],
+            "sources": ["local:validation-source"],
             "inferences": [],
             "uncertainty": [],
             "missing_evidence": [],

@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from typing import TYPE_CHECKING
 
-from scholar_agent.engine.local_index import build_search_text, is_card, parse_card, split_frontmatter
+from scholar_agent.engine.local_index import build_index, build_search_text, is_card, parse_card, split_frontmatter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -44,6 +44,12 @@ class TestIsCard:
         tpl.parent.mkdir(parents=True)
         tpl.write_text("---\nid: tpl\n---\nBody\n", encoding="utf-8")
         assert is_card(tpl) is False
+
+    def test_snapshots_dir_excluded(self, tmp_path: Path) -> None:
+        snap = tmp_path / "_snapshots" / "source.md"
+        snap.parent.mkdir(parents=True)
+        snap.write_text("---\nid: snapshot\n---\nArchived page\n", encoding="utf-8")
+        assert is_card(snap) is False
 
     def test_nonexistent_file(self, tmp_path: Path) -> None:
         f = tmp_path / "nonexistent.md"
@@ -148,3 +154,15 @@ class TestParseCard:
         result = parse_card(card)
         assert result["doc_id"] == "empty"
         assert result["search_text"].strip() == ""
+
+    def test_build_index_skips_snapshots(self, tmp_path: Path) -> None:
+        card = tmp_path / "topic" / "real.md"
+        card.parent.mkdir(parents=True)
+        card.write_text("---\nid: real\ntitle: Real Card\n---\nBody\n", encoding="utf-8")
+        snap = tmp_path / "_snapshots" / "source.md"
+        snap.parent.mkdir(parents=True)
+        snap.write_text("---\nid: snapshot\ntitle: Snapshot\n---\nArchived source\n", encoding="utf-8")
+
+        payload = build_index(tmp_path, extra_dirs=[])
+
+        assert [doc["doc_id"] for doc in payload["documents"]] == ["real"]

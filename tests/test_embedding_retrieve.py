@@ -200,6 +200,34 @@ class TestEmbedQueryCache(unittest.TestCase):
 
         self.assertEqual(call_count, 2)
 
+    def test_model_change_misses_cache(self) -> None:
+        from scholar_agent.engine import embedding_retrieve as er
+
+        call_count = 0
+        model_name = "model-a"
+
+        def fake_embed_texts(texts):  # type: ignore[no-untyped-def]
+            nonlocal call_count
+            call_count += 1
+            return [[float(call_count)] for _ in texts]
+
+        def fake_model() -> str:
+            return model_name
+
+        with (
+            patch.object(er, "_get_backend", return_value="api"),
+            patch.object(er, "_get_model", side_effect=fake_model),
+            patch.object(er, "embed_texts", side_effect=fake_embed_texts),
+        ):
+            first = er.embed_query("hello")
+            second = er.embed_query("hello")
+            model_name = "model-b"
+            third = er.embed_query("hello")
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(second, third)
+        self.assertEqual(call_count, 2)
+
     def test_empty_result_not_cached(self) -> None:
         from scholar_agent.engine import embedding_retrieve as er
 
@@ -287,7 +315,13 @@ class TestIncrementalEmbeddingIndex(unittest.TestCase):
     """build_embedding_index reuses unchanged embeddings, re-embeds changed."""
 
     def test_reuses_unchanged_embeddings(self) -> None:
-        from scholar_agent.engine.embedding_retrieve import _text_hash, build_embedding_index
+        from scholar_agent.engine.embedding_retrieve import (
+            _EMBEDDING_INDEX_SCHEMA_VERSION,
+            _get_backend,
+            _get_model,
+            _text_hash,
+            build_embedding_index,
+        )
 
         docs = [
             {"doc_id": "a", "search_text": "alpha beta"},
@@ -295,6 +329,10 @@ class TestIncrementalEmbeddingIndex(unittest.TestCase):
             {"doc_id": "c", "search_text": "epsilon"},  # new
         ]
         existing = {
+            "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+            "model": _get_model(),
+            "backend": _get_backend(),
+            "dimension": 2,
             "doc_ids": ["a", "b"],
             "embeddings": [[1.0, 0.0], [0.0, 1.0]],
             "text_hashes": {
@@ -321,10 +359,20 @@ class TestIncrementalEmbeddingIndex(unittest.TestCase):
         self.assertIn("c", idx["text_hashes"])
 
     def test_reembeds_modified_doc(self) -> None:
-        from scholar_agent.engine.embedding_retrieve import _text_hash, build_embedding_index
+        from scholar_agent.engine.embedding_retrieve import (
+            _EMBEDDING_INDEX_SCHEMA_VERSION,
+            _get_backend,
+            _get_model,
+            _text_hash,
+            build_embedding_index,
+        )
 
         docs = [{"doc_id": "a", "search_text": "changed text"}]
         existing = {
+            "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+            "model": _get_model(),
+            "backend": _get_backend(),
+            "dimension": 2,
             "doc_ids": ["a"],
             "embeddings": [[1.0, 0.0]],
             "text_hashes": {"a": _text_hash("original text")},  # mismatch → re-embed
@@ -332,6 +380,57 @@ class TestIncrementalEmbeddingIndex(unittest.TestCase):
         with patch("scholar_agent.engine.embedding_retrieve.embed_texts", return_value=[[0.9, 0.1]]):
             idx = build_embedding_index(docs, existing_index=existing)
         self.assertEqual(dict(zip(idx["doc_ids"], idx["embeddings"], strict=True))["a"], [0.9, 0.1])
+
+    def test_reembeds_when_existing_model_differs(self) -> None:
+        from scholar_agent.engine.embedding_retrieve import (
+            _EMBEDDING_INDEX_SCHEMA_VERSION,
+            _get_backend,
+            _text_hash,
+            build_embedding_index,
+        )
+
+        docs = [{"doc_id": "a", "search_text": "alpha beta"}]
+        existing = {
+            "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+            "model": "old-model",
+            "backend": _get_backend(),
+            "dimension": 2,
+            "doc_ids": ["a"],
+            "embeddings": [[1.0, 0.0]],
+            "text_hashes": {"a": _text_hash("alpha beta")},
+        }
+
+        with patch("scholar_agent.engine.embedding_retrieve.embed_texts", return_value=[[0.2, 0.8]]) as embed:
+            idx = build_embedding_index(docs, existing_index=existing)
+
+        embed.assert_called_once_with(["alpha beta"])
+        self.assertEqual(dict(zip(idx["doc_ids"], idx["embeddings"], strict=True))["a"], [0.2, 0.8])
+
+    def test_reembeds_when_existing_dimension_is_inconsistent(self) -> None:
+        from scholar_agent.engine.embedding_retrieve import (
+            _EMBEDDING_INDEX_SCHEMA_VERSION,
+            _get_backend,
+            _get_model,
+            _text_hash,
+            build_embedding_index,
+        )
+
+        docs = [{"doc_id": "a", "search_text": "alpha beta"}]
+        existing = {
+            "schema_version": _EMBEDDING_INDEX_SCHEMA_VERSION,
+            "model": _get_model(),
+            "backend": _get_backend(),
+            "dimension": 3,
+            "doc_ids": ["a"],
+            "embeddings": [[1.0, 0.0]],
+            "text_hashes": {"a": _text_hash("alpha beta")},
+        }
+
+        with patch("scholar_agent.engine.embedding_retrieve.embed_texts", return_value=[[0.2, 0.8]]) as embed:
+            idx = build_embedding_index(docs, existing_index=existing)
+
+        embed.assert_called_once_with(["alpha beta"])
+        self.assertEqual(dict(zip(idx["doc_ids"], idx["embeddings"], strict=True))["a"], [0.2, 0.8])
 
     def test_no_existing_index_embeds_all(self) -> None:
         from scholar_agent.engine.embedding_retrieve import build_embedding_index

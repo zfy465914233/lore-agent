@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
   <img src="https://img.shields.io/badge/MCP-Ready-brightgreen.svg" alt="MCP Ready" />
-  <img src="https://img.shields.io/badge/tests-1531%20passing-brightgreen.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1554%20passing-brightgreen.svg" alt="Tests" />
   <img src="https://img.shields.io/pypi/v/py-scholar-agent?color=blue" alt="PyPI" />
 </p>
 
@@ -171,7 +171,7 @@ pip install -e .
 scholar-agent init
 ```
 
-One command creates the Scholar home, knowledge data directories, writes config, and registers MCP with Claude Code. Done.
+One command creates the Scholar home, knowledge data directories, writes config, and registers MCP with Claude Code. Use `scholar-agent init --host all` to register Claude Code, VS Code Copilot, and OpenCode in one pass. Check the result with `scholar-agent doctor --format text`.
 
 ### Modes
 
@@ -191,9 +191,11 @@ Scholar Agent runs as an MCP server, integrating directly into your tools:
 - **VS Code Copilot** — `scholar-agent install vscode --write`
 - **OpenCode** — `scholar-agent install opencode --write`
 
-**Core tools** (always available): `query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph`
+**Core tools** (always available): `query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge`
 
 **Academic tools** (set `SCHOLAR_ACADEMIC=1`): `search_papers` · `search_conf_papers` · `download_paper` · `analyze_paper` · `extract_paper_images` · `paper_to_card` · `daily_recommend` · `link_paper_keywords`
+
+`save_research` is provenance-gated: pass a non-empty `sources` array and cite those sources from every `supporting_claims[].evidence_ids`. For unsourced conversation captures, use `capture_answer` instead. URL ingestion and `fetch_url` archive first-hand source snapshots under `knowledge/_snapshots/`; those internal snapshots are excluded from card indexing and governance scans.
 
 <details>
 <summary>Claude Desktop MCP Configuration</summary>
@@ -228,9 +230,12 @@ Knowledge is indexed with **BM25** for fast keyword search — no external depen
 |---------|-------------|
 | `scholar-agent init` | One-command setup: Scholar home + knowledge data dirs + config + MCP registration |
 | `scholar-agent serve-mcp` | Start the MCP server |
-| `scholar-agent doctor` | Show environment and config diagnostics |
+| `scholar-agent doctor --format text --host all` | Show environment and MCP host registration diagnostics |
+| `scholar-agent health` | Read-only project health summary for config, index, stale cards, duplicates, and dangling links |
 | `scholar-agent config show` | Show resolved configuration |
 | `scholar-agent index --build-embedding-index` | Build/rebuild the search index; the flag enables hybrid retrieval |
+| `scholar-agent scan-stale --refresh` | Report stale cards and optionally refresh source snapshots |
+| `scholar-agent report-dangling` | Report dangling `[[wikilinks]]` across notes and knowledge cards |
 | `scholar-agent install claude --write` | Register MCP with Claude Code |
 | `scholar-agent install vscode --write` | Register MCP with VS Code Copilot |
 | `scholar-agent install opencode --write` | Register MCP with OpenCode |
@@ -307,7 +312,7 @@ For best paper analysis quality:
 ```bash
 make dev       # Install with dev dependencies + pre-commit hooks
 make lint      # Run ruff + mypy
-make test      # Run the offline test suite (1531 tests collected; runtime varies by machine)
+make test      # Run the offline test suite (1554 tests collected; runtime varies by machine)
 make coverage  # Run tests with coverage report
 make build     # Build distribution package
 make check-dist # Build and validate sdist/wheel contents

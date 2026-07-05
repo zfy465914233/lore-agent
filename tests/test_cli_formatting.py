@@ -5,6 +5,7 @@ import unittest
 from scholar_agent.cli import (
     _append_text_lines,
     _format_doctor_text,
+    _format_health_text,
     _format_mapping_text,
     build_parser,
 )
@@ -344,6 +345,66 @@ class TestFormatDoctorText(unittest.TestCase):
         text = _format_doctor_text(self._base_payload())
         self.assertIn("on PATH: yes", text)
 
+    def test_mcp_hosts_report_multiple_hosts(self) -> None:
+        payload = self._base_payload()
+        payload["mcp"] = {
+            "requested_host": "all",
+            "claude_registered": True,
+            "hosts": {
+                "claude": {"installed": True, "status": "ok", "scope": "user"},
+                "vscode": {"installed": False, "status": "ok", "path": "/tmp/mcp.json"},
+            },
+        }
+        text = _format_doctor_text(payload)
+        self.assertIn("claude: registered", text)
+        self.assertIn("vscode: not registered", text)
+        self.assertNotIn("vscode MCP not registered", text)
+
+    def test_requested_unregistered_host_is_problem(self) -> None:
+        payload = self._base_payload()
+        payload["mcp"] = {
+            "requested_host": "vscode",
+            "claude_registered": False,
+            "hosts": {
+                "vscode": {"installed": False, "status": "ok", "path": "/tmp/mcp.json"},
+            },
+        }
+        text = _format_doctor_text(payload)
+        self.assertIn("vscode: not registered", text)
+        self.assertIn("vscode MCP not registered", text)
+
+
+class TestFormatHealthText(unittest.TestCase):
+    def test_health_text_includes_core_sections(self) -> None:
+        payload = {
+            "status": "warn",
+            "warnings": ["index_missing"],
+            "config": {
+                "mode": "editable",
+                "config_file": "/tmp/config.json",
+                "knowledge_dir": "/tmp/knowledge",
+                "index_path": "/tmp/index.json",
+            },
+            "index": {
+                "exists": False,
+                "valid": False,
+                "documents": 0,
+                "embedding_index_exists": False,
+            },
+            "knowledge": {
+                "cards": 3,
+                "stale_count": 1,
+                "duplicate_count": 0,
+                "dangling_count": 2,
+            },
+            "samples": {"stale": [], "duplicates": [], "dangling": []},
+        }
+        text = _format_health_text(payload)
+        self.assertIn("Scholar Agent Health", text)
+        self.assertIn("status: warn", text)
+        self.assertIn("index_missing", text)
+        self.assertIn("Knowledge:", text)
+
 
 class TestBuildParser(unittest.TestCase):
     """Tests for build_parser argument parsing."""
@@ -358,11 +419,28 @@ class TestBuildParser(unittest.TestCase):
         args = parser.parse_args(["doctor"])
         self.assertEqual(args.command, "doctor")
         self.assertEqual(args.format, "json")
+        self.assertEqual(args.host, "all")
 
     def test_doctor_text_format(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["doctor", "--format", "text"])
         self.assertEqual(args.format, "text")
+
+    def test_doctor_host(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["doctor", "--host", "vscode"])
+        self.assertEqual(args.host, "vscode")
+
+    def test_health_default(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["health"])
+        self.assertEqual(args.command, "health")
+        self.assertEqual(args.format, "text")
+
+    def test_health_json(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["health", "--format", "json"])
+        self.assertEqual(args.format, "json")
 
     def test_config_show(self) -> None:
         parser = build_parser()

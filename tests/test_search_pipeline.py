@@ -102,6 +102,41 @@ class AcademicProviderTest(unittest.TestCase):
         evidence_urls = {item["url"] for item in payload["evidence"]}
         self.assertEqual(merged_urls, evidence_urls)
 
+    def test_run_search_pipeline_fetch_contents_populates_evidence_body(self) -> None:
+        class FakeProvider:
+            provider_name = "fake_provider"
+
+            def search(self, query: str, limit: int | None = None) -> ProviderResult:
+                return ProviderResult(
+                    provider=self.provider_name,
+                    query=query,
+                    candidates=[
+                        SearchCandidate(
+                            query=query,
+                            url="https://example.com/a",
+                            title="Fetched Result",
+                            snippet="Search snippet",
+                            published_at="2026-01-01",
+                        )
+                    ],
+                )
+
+        with patch(
+            "scholar_agent.engine.research_harness.fetch_content",
+            return_value={
+                "retrieval_status": "succeeded",
+                "content_md": "Fetched page body with concrete evidence.",
+                "title": "Fetched Result",
+                "failure_reason": "",
+            },
+        ) as fetch:
+            payload = run_search_pipeline("markov chain", providers=[FakeProvider()], fetch_contents=True)
+
+        fetch.assert_called_once_with("https://example.com/a")
+        self.assertEqual("Fetched page body with concrete evidence.", payload["evidence"][0]["content_md"])
+        self.assertEqual("succeeded", payload["evidence"][0]["retrieval_status"])
+        self.assertEqual("confirmed", payload["evidence"][0]["confidence"])
+
     def test_evidence_schema_exposes_optional_provenance_contract(self) -> None:
         schema_path = _ROOT / "src" / "scholar_agent" / "schemas" / "evidence.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))

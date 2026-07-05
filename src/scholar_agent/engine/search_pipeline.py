@@ -98,13 +98,7 @@ def run_search_pipeline(
 
     merged_candidates, summary = merge_candidates(internal_candidates, external_candidates)
 
-    evidence = [
-        normalize_candidate(
-            candidate,
-            fetched_text="",
-        )
-        for candidate in merged_candidates
-    ]
+    evidence = [_candidate_to_evidence(candidate, fetch_contents=fetch_contents) for candidate in merged_candidates]
 
     return {
         "query": query,
@@ -119,6 +113,30 @@ def run_search_pipeline(
             **summary,
         },
     }
+
+
+def _candidate_to_evidence(candidate: dict[str, Any], *, fetch_contents: bool) -> dict[str, Any]:
+    fetched_text = ""
+    retrieval_status = "partial"
+    if fetch_contents:
+        url = str(candidate.get("url") or "").strip()
+        if url.startswith(("http://", "https://")):
+            try:
+                from scholar_agent.engine.research_harness import fetch_content
+
+                fetched = fetch_content(url)
+                fetched_text = str(fetched.get("content_md") or "")
+                retrieval_status = str(fetched.get("retrieval_status") or "partial")
+                if not fetched_text and retrieval_status in {"succeeded", "cached"}:
+                    retrieval_status = "partial"
+            except Exception:
+                retrieval_status = "failed"
+
+    return normalize_candidate(
+        candidate,
+        fetched_text=fetched_text,
+        retrieval_status=retrieval_status,
+    )
 
 
 def _coerce_external_batch(

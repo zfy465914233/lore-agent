@@ -24,6 +24,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+RESERVED_KNOWLEDGE_DIRS = frozenset({"_snapshots", "templates"})
+
 
 # ── Repo root resolution ──────────────────────────────────────────
 
@@ -67,6 +69,12 @@ def get_package_data_path(*parts: str) -> Path:
     if pkg_path.exists():
         return pkg_path
     return get_repo_root().joinpath("src", "scholar_agent", *parts)
+
+
+def is_reserved_knowledge_path(path: Path) -> bool:
+    """Return True for internal knowledge files that are not user cards."""
+    parts = set(path.parts)
+    return bool(parts & RESERVED_KNOWLEDGE_DIRS) or path.name.lower() == "readme.md"
 
 
 # ── Frontmatter parsing ────────────────────────────────────────────

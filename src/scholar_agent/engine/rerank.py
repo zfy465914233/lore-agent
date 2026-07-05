@@ -95,13 +95,22 @@ def _parse_batch_scores(raw: str, n_expected: int) -> dict[int, float] | None:
     return scores
 
 
+def _candidate_excerpt(candidate: dict[str, Any], max_chars: int) -> str:
+    excerpt = str(
+        candidate.get("snippet")
+        or candidate.get("search_text")
+        or candidate.get("summary")
+        or candidate.get("path", "")
+    )[:max_chars]
+    return excerpt.replace("\n", " ")[:max_chars]
+
+
 def _build_list_block(candidates: list[dict[str, Any]], max_chars: int) -> str:
     """Format candidates as a numbered list for the batch prompt."""
     lines: list[str] = []
     for i, candidate in enumerate(candidates, start=1):
         title = str(candidate.get("title", ""))[:200]
-        excerpt = str(candidate.get("search_text") or candidate.get("summary") or candidate.get("path", ""))[:max_chars]
-        excerpt = excerpt.replace("\n", " ")[:max_chars]
+        excerpt = _candidate_excerpt(candidate, max_chars)
         lines.append(f"{i}. {title} — {excerpt}")
     return "\n".join(lines)
 
@@ -148,7 +157,7 @@ def _rerank_per_candidate(
     scores: list[float] = []
     for orig_idx, candidate in enumerate(candidates):
         title = str(candidate.get("title", ""))[:200]
-        excerpt = str(candidate.get("search_text") or candidate.get("summary") or candidate.get("path", ""))[:max_chars]
+        excerpt = _candidate_excerpt(candidate, max_chars)
         prompt = _PER_CANDIDATE_PROMPT_TEMPLATE.format(query=query[:500], title=title, excerpt=excerpt)
 
         score = _NEUTRAL_SCORE
