@@ -63,6 +63,60 @@ class TestScoring(unittest.TestCase):
         scored = self.score_papers(papers, self.config)
         self.assertEqual(len(scored), 0, "Excluded keyword 'survey' should filter out the paper")
 
+    def _base_llm_paper(self):
+        return {
+            "title": "A new LLM approach for reasoning",
+            "summary": "We propose a large language model with transformer architecture.",
+            "categories": ["cs.AI"],
+            "published_date": datetime.now(),
+            "citationCount": 0,
+            "source": "arxiv",
+        }
+
+    def test_venue_bonus_lifts_recommendation(self):
+        no_venue = self._base_llm_paper()
+        with_venue = self._base_llm_paper()
+        with_venue["venue"] = "IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+        scored_none = self.score_papers([no_venue], self.config)
+        scored_cvpr = self.score_papers([with_venue], self.config)
+        self.assertEqual(scored_none[0]["scores"]["venue_rank"], "n/a")
+        self.assertEqual(scored_cvpr[0]["scores"]["venue_rank"], "A")
+        # venue is a pure add-on: identical paper, +1.0 for CCF-A
+        self.assertAlmostEqual(
+            scored_cvpr[0]["scores"]["recommendation"]
+            - scored_none[0]["scores"]["recommendation"],
+            1.0,
+            places=2,
+        )
+
+    def test_venue_ccf_c_less_than_a(self):
+        cvpr = self._base_llm_paper()
+        cvpr["venue"] = "IEEE/CVF Conference on Computer Vision and Pattern Recognition"
+        icdm = self._base_llm_paper()
+        icdm["venue"] = "IEEE International Conference on Data Mining"
+        scored_cvpr = self.score_papers([cvpr], self.config)
+        scored_icdm = self.score_papers([icdm], self.config)
+        self.assertEqual(scored_cvpr[0]["scores"]["venue_rank"], "A")
+        self.assertEqual(scored_icdm[0]["scores"]["venue_rank"], "C")
+        self.assertGreater(
+            scored_cvpr[0]["scores"]["recommendation"],
+            scored_icdm[0]["scores"]["recommendation"],
+        )
+
+    def test_arxiv_venue_not_penalized(self):
+        no_venue = self._base_llm_paper()
+        arxiv = self._base_llm_paper()
+        arxiv["venue"] = "arXiv.org"
+        scored_none = self.score_papers([no_venue], self.config)
+        scored_arxiv = self.score_papers([arxiv], self.config)
+        self.assertEqual(scored_arxiv[0]["scores"]["venue_rank"], "n/a")
+        # arXiv preprint scores identically to a paper with no venue at all
+        self.assertAlmostEqual(
+            scored_arxiv[0]["scores"]["recommendation"],
+            scored_none[0]["scores"]["recommendation"],
+            places=2,
+        )
+
     def test_recency_score_within_30_days(self):
         papers = [
             {

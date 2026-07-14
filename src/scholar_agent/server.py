@@ -1027,6 +1027,31 @@ def scan_stale_knowledge() -> str:
 
 
 @tool
+def scan_dead_links(concurrency: int = 8, timeout: float = 10.0, offline: bool = False) -> str:
+    """Diagnose dead source URLs (404/410/connection failure) across knowledge cards.
+
+    Probes each unique source_refs URL once (HEAD first, GET fallback) and fans
+    the result out to every card that cites it. Paywalled domains are reported
+    as ``blocked``; offline=True marks every URL ``skipped``. Read-only — never
+    edits cards or snapshots.
+
+    Args:
+        concurrency: Maximum concurrent URL probes.
+        timeout: Per-request timeout in seconds.
+        offline: Skip all network probes.
+    """
+    if not isinstance(concurrency, int) or concurrency < 1:
+        return json.dumps({"error": "concurrency must be a positive integer"})
+    if not isinstance(timeout, (int, float)) or timeout <= 0:
+        return json.dumps({"error": "timeout must be positive"})
+    root = get_knowledge_dir()
+    from scholar_agent.engine.dead_link_check import check_dead_links
+
+    report = check_dead_links(root, concurrency=concurrency, timeout=timeout, offline=offline)
+    return json.dumps(report, ensure_ascii=False, indent=2)
+
+
+@tool
 def build_graph() -> str:
     """Build an interactive knowledge graph visualization.
 

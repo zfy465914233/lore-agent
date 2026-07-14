@@ -12,6 +12,8 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from scholar_agent.engine.academic.venue_ranking import rank_venue as _rank_venue
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -22,6 +24,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _CEILING = 5.0  # per-dimension maximum
+
+# Soft bonus added to the recommendation score for peer-reviewed venue backing.
+# Preprints (no venue) get 0 - never penalized. Sums onto the 0-10 scale.
+_VENUE_BONUS: dict[str, float] = {"A": 1.0, "B": 0.6, "C": 0.3}
 
 # Weight profiles — emphasis differs by use case
 _WEIGHTS_DEFAULT: dict[str, float] = {
@@ -256,6 +262,9 @@ class PaperScorer:
             2,
         )
 
+        venue_info = self._venue_bonus(paper)
+        rec = round(rec + venue_info["bonus"], 2)
+
         paper["best_domain"] = domain
         paper["domain_keywords"] = kw
         paper["trending"] = trending
@@ -266,6 +275,7 @@ class PaperScorer:
             "impact": round(impact, 2),
             "rigor": round(rigor, 2),
             "recommendation": rec,
+            "venue_rank": venue_info["rank"] or "n/a",
         }
 
     def _fit(
@@ -367,6 +377,16 @@ class PaperScorer:
         low = text.lower()
         total = sum(w for term, w in _QUALITY_WEIGHTS.items() if term in low)
         return min(total, _CEILING)
+
+    @staticmethod
+    def _venue_bonus(paper: dict[str, Any]) -> dict[str, Any]:
+        """Soft peer-reviewed venue backing. 0 for preprints (never penalized)."""
+        venue = paper.get("venue") or paper.get("conference")
+        info = _rank_venue(venue)
+        return {
+            "bonus": _VENUE_BONUS.get(info["rank"] or "", 0.0),
+            "rank": info["rank"],
+        }
 
     @staticmethod
     def _parse_date(paper: dict[str, Any]) -> datetime | None:

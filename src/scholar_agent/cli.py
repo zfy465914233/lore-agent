@@ -531,6 +531,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format.",
     )
 
+    dead_links_parser = subparsers.add_parser(
+        "report-dead-links",
+        help="Diagnose dead source URLs (404/410/connection failure) across "
+        "knowledge cards. Read-only — never edits cards or snapshots.",
+    )
+    dead_links_parser.add_argument(
+        "--knowledge-dir",
+        default="",
+        help="Knowledge directory to scan. Defaults to the configured knowledge directory.",
+    )
+    dead_links_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=8,
+        help="Maximum concurrent URL probes (default: 8).",
+    )
+    dead_links_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="Per-request timeout in seconds (default: 10).",
+    )
+    dead_links_parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Skip all network probes; mark every URL as skipped.",
+    )
+    dead_links_parser.add_argument(
+        "--format",
+        choices=("json", "text"),
+        default="text",
+        help="Output format.",
+    )
+
     return parser
 
 
@@ -1689,7 +1723,7 @@ def _extract_card_urls(card_path: Path) -> list[str]:
     ``source_refs`` is a YAML list of URLs. Falls back to an inline ``sources``
     list if present. Non-http entries and duplicates are skipped.
     """
-    from scholar_agent.engine.common import parse_frontmatter
+    from scholar_agent.engine.common import extract_source_urls, parse_frontmatter
 
     try:
         raw = card_path.read_text(encoding="utf-8", errors="replace")
@@ -1698,23 +1732,7 @@ def _extract_card_urls(card_path: Path) -> list[str]:
     if not raw.startswith("---\n"):
         return []
     meta, _body = parse_frontmatter(raw)
-
-    urls: list[str] = []
-    seen: set[str] = set()
-    for key in ("source_refs", "sources"):
-        val = meta.get(key)
-        if isinstance(val, list):
-            candidates = val
-        elif isinstance(val, str) and val:
-            candidates = [val]
-        else:
-            candidates = []
-        for entry in candidates:
-            url = str(entry).strip().strip("'\"")
-            if url.startswith(("http://", "https://")) and url not in seen:
-                seen.add(url)
-                urls.append(url)
-    return urls
+    return extract_source_urls(meta)
 
 
 def _refresh_card_sources(
@@ -1936,6 +1954,70 @@ def _run_report_dangling(notes_dirs: list[str], knowledge_dir: str, output_forma
     return 0
 
 
+def _run_report_dead_links(
+    knowledge_dir: str,
+    output_format: str,
+    *,
+    concurrency: int = 8,
+    timeout: float = 10.0,
+    offline: bool = False,
+) -> int:
+    """Diagnose dead source URLs across knowledge cards. Read-only."""
+    from scholar_agent.engine import scholar_config as _scholar_config
+    from scholar_agent.engine.dead_link_check import check_dead_links
+
+    if not knowledge_dir:
+        try:
+            knowledge_dir = str(_scholar_config.get_knowledge_dir())
+        except Exception:
+            knowledge_dir = ""
+
+    if not knowledge_dir or not Path(knowledge_dir).exists():
+        sys.stderr.write(f"knowledge directory not found: {knowledge_dir!r}\n")
+        return 1
+
+    report = check_dead_links(
+        Path(knowledge_dir),
+        concurrency=concurrency,
+        timeout=timeout,
+        offline=offline,
+    )
+
+    if output_format == "json":
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    results = report["results"]
+    if not results:
+        print(f"no source URLs to check in {knowledge_dir}")
+        return 0
+
+    summary = report["summary"]
+    print(
+        f"Checked {report['urls_checked']} URL(s) across {report['cards_checked']} "
+        f"card(s) in {knowledge_dir}:  "
+        + "  ".join(f"{k}={v}" for k, v in sorted(summary.items()))
+    )
+    print()
+    dead = [r for r in results if r["status"] == "dead"]
+    if not dead:
+        print("no dead links found")
+        return 0
+
+    grouped: dict[str, list[dict]] = {}
+    for item in dead:
+        grouped.setdefault(item["card_path"], []).append(item)
+    print(f"Dead links ({len(dead)}):")
+    print()
+    for cpath in sorted(grouped):
+        items = grouped[cpath]
+        print(f"{cpath}  ({len(items)})")
+        for it in items:
+            print(f"  [{it['status_code']}] {it['url']}")
+        print()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -2048,6 +2130,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             notes_dirs=args.notes_dir,
             knowledge_dir=args.knowledge_dir,
             output_format=args.format,
+        )
+
+    if command == "report-dead-links":
+        return _run_report_dead_links(
+            knowledge_dir=args.knowledge_dir,
+            output_format=args.format,
+            concurrency=args.concurrency,
+            timeout=args.timeout,
+            offline=args.offline,
         )
 
     if command == "scan-stale":

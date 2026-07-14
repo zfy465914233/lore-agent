@@ -1,6 +1,8 @@
 # Scholar Agent vs. Alternatives: Why Not Just Use mem0 / MemGPT / Zep?
 
 > Last updated: 2026-06-02
+>
+> **See also:** [`comparison-academic-agents.md`](comparison-academic-agents.md) compares us against fellow academic research agents (scholaraio, scholar-rag-agent, …). This page stays focused on memory tools.
 
 Great question. Here's a direct comparison. We'll be honest about where other tools are better.
 

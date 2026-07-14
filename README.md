@@ -191,7 +191,7 @@ Scholar Agent runs as an MCP server, integrating directly into your tools:
 - **VS Code Copilot** — `scholar-agent install vscode --write`
 - **OpenCode** — `scholar-agent install opencode --write`
 
-**Core tools** (always available): `query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge`
+**Core tools** (always available): `query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge` · `scan_dead_links`
 
 **Academic tools** (set `SCHOLAR_ACADEMIC=1`): `search_papers` · `search_conf_papers` · `download_paper` · `analyze_paper` · `extract_paper_images` · `paper_to_card` · `daily_recommend` · `link_paper_keywords`
 
@@ -236,6 +236,7 @@ Knowledge is indexed with **BM25** for fast keyword search — no external depen
 | `scholar-agent index --build-embedding-index` | Build/rebuild the search index; the flag enables hybrid retrieval |
 | `scholar-agent scan-stale --refresh` | Report stale cards and optionally refresh source snapshots |
 | `scholar-agent report-dangling` | Report dangling `[[wikilinks]]` across notes and knowledge cards |
+| `scholar-agent report-dead-links` | Diagnose dead source URLs (404/410/connection failure) across knowledge cards |
 | `scholar-agent install claude --write` | Register MCP with Claude Code |
 | `scholar-agent install vscode --write` | Register MCP with VS Code Copilot |
 | `scholar-agent install opencode --write` | Register MCP with OpenCode |

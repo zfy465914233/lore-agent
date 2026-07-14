@@ -188,7 +188,7 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 - **VS Code Copilot** — `scholar-agent install vscode --write`
 - **OpenCode** — `scholar-agent install opencode --write`
 
-**核心工具**（始终可用）：`query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge`
+**核心工具**（始终可用）：`query_knowledge` · `save_research` · `list_knowledge` · `capture_answer` · `ingest_source` · `build_graph` · `validate_knowledge` · `lint_knowledge` · `scan_stale_knowledge` · `scan_dead_links`
 
 **学术工具**（设置 `SCHOLAR_ACADEMIC=1` 启用）：`search_papers` · `search_conf_papers` · `download_paper` · `analyze_paper` · `extract_paper_images` · `paper_to_card` · `daily_recommend` · `link_paper_keywords`
 
@@ -233,6 +233,7 @@ Scholar Agent 作为 MCP 服务器运行，直接接入你的工具：
 | `scholar-agent index --build-embedding-index` | 构建/重建搜索索引；该标志启用混合检索 |
 | `scholar-agent scan-stale --refresh` | 报告陈旧卡片，并可刷新来源快照 |
 | `scholar-agent report-dangling` | 报告 notes 和知识卡片中的悬空 `[[wikilinks]]` |
+| `scholar-agent report-dead-links` | 诊断知识卡片来源 URL 的死链（404/410/连接失败） |
 | `scholar-agent install claude --write` | 注册 MCP 到 Claude Code |
 | `scholar-agent install vscode --write` | 注册 MCP 到 VS Code Copilot |
 | `scholar-agent install opencode --write` | 注册 MCP 到 OpenCode |

@@ -58,6 +58,31 @@ class TestDateWindow(unittest.TestCase):
         self.assertLessEqual(abs((dw_none.recent_end - dw_default.recent_end).total_seconds()), 5)
 
 
+class TestS2VenueExtraction(unittest.TestCase):
+    def test_publication_venue_name_extracted(self):
+        p = {"externalIds": {}, "publicationVenue": {"name": "CVPR"}}
+        out = _s2_paper_to_dict(p)
+        self.assertEqual(out["venue"], "CVPR")
+        self.assertEqual(out["conference"], "CVPR")
+
+    def test_bare_venue_fallback(self):
+        p = {"externalIds": {}, "venue": "NeurIPS"}
+        out = _s2_paper_to_dict(p)
+        self.assertEqual(out["venue"], "NeurIPS")
+
+    def test_no_venue_for_preprint(self):
+        p = {"externalIds": {"ArXiv": "1234.5678"}}
+        out = _s2_paper_to_dict(p)
+        self.assertNotIn("venue", out)
+        self.assertEqual(out["arxiv_id"], "1234.5678")
+
+    def test_existing_conference_not_overwritten(self):
+        p = {"externalIds": {}, "conference": "ICML 2024", "venue": "NeurIPS"}
+        out = _s2_paper_to_dict(p)
+        self.assertEqual(out["conference"], "ICML 2024")  # preserved
+        self.assertEqual(out["venue"], "NeurIPS")
+
+
 class TestPaperRecordToDict(unittest.TestCase):
     """Tests for PaperRecord.to_dict()."""
 

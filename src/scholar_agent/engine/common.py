@@ -77,6 +77,54 @@ def is_reserved_knowledge_path(path: Path) -> bool:
     return bool(parts & RESERVED_KNOWLEDGE_DIRS) or path.name.lower() == "readme.md"
 
 
+# ── Network / URL helpers ──────────────────────────────────────────
+
+
+# Domains that reliably block/forbid automated retrieval. Single source of
+# truth — used by research_harness.fetch_content and dead_link_check.
+BLOCKED_FETCH_DOMAINS: frozenset[str] = frozenset(
+    {
+        "sciencedirect.com",
+        "wiley.com",
+        "onlinelibrary.wiley.com",
+        "ieee.org",
+        "ieeexplore.ieee.org",
+        "nature.com",
+    }
+)
+
+
+def is_blocked_host(url: str) -> str | None:
+    """Return the matched blocked domain for *url*, or None if not blocked."""
+    from urllib.parse import urlparse
+
+    host = urlparse(url).netloc.lower()
+    for domain in BLOCKED_FETCH_DOMAINS:
+        if host == domain or host.endswith(f".{domain}"):
+            return domain
+    return None
+
+
+def extract_source_urls(metadata: dict[str, Any]) -> list[str]:
+    """Extract http(s) URLs from a card's parsed frontmatter source_refs/sources."""
+    urls: list[str] = []
+    seen: set[str] = set()
+    for key in ("source_refs", "sources"):
+        val = metadata.get(key)
+        if isinstance(val, list):
+            candidates = val
+        elif isinstance(val, str) and val:
+            candidates = [val]
+        else:
+            candidates = []
+        for entry in candidates:
+            url = str(entry).strip().strip("'\"")
+            if url.startswith(("http://", "https://")) and url not in seen:
+                seen.add(url)
+                urls.append(url)
+    return urls
+
+
 # ── Frontmatter parsing ────────────────────────────────────────────
 
 

@@ -50,6 +50,11 @@ ANSWER_SYSTEM_PROMPT = (
     "- List what is unknown or uncertain under uncertainty.\n"
     "- If critical information is missing, describe it under missing_evidence.\n"
     "- The answer field must be detailed enough for an agent to design a technical roadmap.\n"
+    "Grounding rules (anti-overclaim):\n"
+    "- Keep each claim within what the evidence directly states; do not overclaim.\n"
+    "- Do not stitch concepts from different sources into causal claims they do not support.\n"
+    "- Do not extrapolate findings to regions or domains the evidence did not study.\n"
+    "- Do not make performance comparisons (outperforms/best) without supporting data.\n"
 )
 
 
@@ -178,11 +183,39 @@ def parse_answer(raw_content: str) -> dict[str, Any]:
     }
 
 
-def validate_claims(answer: dict[str, Any], valid_evidence_ids: set[str]) -> dict[str, Any]:
-    """Validate that claims reference existing evidence IDs.
+# Absolute-language tokens that, in a *high*-confidence claim, signal possible
+# overclaiming. Used as a soft grounding heuristic — never blocks, only
+# downgrades confidence to "medium" and records the reason under uncertainty.
+_OVERCLAIM_TERMS: frozenset[str] = frozenset(
+    {
+        "prove",
+        "proves",
+        "proven",
+        "proving",
+        "guarantee",
+        "guarantees",
+        "guaranteed",
+        "always",
+        "never",
+        "certainly",
+        "definitely",
+        "impossible",
+        "undeniably",
+        "unequivocally",
+        "conclusively",
+        "definitive",
+        "definitively",
+    }
+)
 
-    Strips invalid evidence_ids from supporting_claims and adds
-    a warning to uncertainty for each invalid reference found.
+
+def validate_claims(answer: dict[str, Any], valid_evidence_ids: set[str]) -> dict[str, Any]:
+    """Validate that claims reference existing evidence IDs, then apply grounding.
+
+    Strips invalid evidence_ids from supporting_claims (adding an uncertainty
+    warning), then downgrades any *high*-confidence claim that uses absolute
+    language (prove/always/never/…) to "medium" — a soft anti-overclaim nudge.
+    Never blocks; only records reasons under uncertainty.
     """
     claims = answer.get("supporting_claims", [])
     if not claims:
@@ -202,12 +235,26 @@ def validate_claims(answer: dict[str, Any], valid_evidence_ids: set[str]) -> dic
 
         if invalid:
             warnings.append(f"Claim references non-existent evidence IDs: {invalid}")
-            cleaned = {**claim, "evidence_ids": valid}
+            current = {**claim, "evidence_ids": valid}
             if not valid:
-                cleaned["_orphaned"] = True
-            cleaned_claims.append(cleaned)
+                current["_orphaned"] = True
         else:
-            cleaned_claims.append(claim)
+            current = claim
+
+        # Grounding: downgrade high-confidence overclaims in the same pass.
+        if str(current.get("confidence", "")).lower() == "high":
+            hits = sorted(
+                t for t in _OVERCLAIM_TERMS if t in str(current.get("claim", "")).lower()
+            )
+            if hits:
+                current["confidence"] = "medium"
+                warnings.append(
+                    "Claim downgraded high->medium: absolute language ("
+                    + ", ".join(hits[:3])
+                    + ") without verified evidence strength."
+                )
+
+        cleaned_claims.append(current)
 
     result = {**answer, "supporting_claims": cleaned_claims}
     if warnings:

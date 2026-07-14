@@ -42,7 +42,8 @@ except ImportError:
 
 _S2_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 _S2_FIELDS = (
-    "externalIds,title,abstract,publicationDate,influentialCitationCount,citationCount,url,authors,authors.affiliations"
+    "externalIds,title,abstract,publicationDate,influentialCitationCount,"
+    "citationCount,url,authors,authors.affiliations,venue,publicationVenue"
 )
 
 _ATOM_NS = {
@@ -418,6 +419,21 @@ def _s2_paper_to_dict(p: dict) -> dict[str, Any]:
 
     ext = p.get("externalIds") or {}
     p["arxiv_id"] = ext.get("ArXiv")
+
+    # Resolve a peer-reviewed venue. publicationVenue.name is the structured
+    # form (preferred); the bare `venue` string is the fallback. arXiv-only
+    # preprints have neither, so they stay venue-less (never penalized).
+    pub_venue = p.get("publicationVenue") or {}
+    venue_name = ""
+    if isinstance(pub_venue, dict):
+        venue_name = (pub_venue.get("name") or "").strip()
+    if not venue_name:
+        venue_name = (p.get("venue") or "").strip()
+    if venue_name:
+        p["venue"] = venue_name
+        # Surface as `conference` too so paper_analyzer renders it in notes.
+        if not p.get("conference"):
+            p["conference"] = venue_name
     return p
 
 

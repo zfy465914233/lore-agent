@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 
 from scholar_agent.engine.cache_helper import get as cache_get
 from scholar_agent.engine.cache_helper import put as cache_put
-from scholar_agent.engine.common import now_iso
+from scholar_agent.engine.common import is_blocked_host, now_iso
 from scholar_agent.engine.search_pipeline import run_search_pipeline
 from scholar_agent.engine.search_providers.self_hosted_provider import AcademicProvider
 
@@ -33,14 +33,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_FETCH_CHARS = 12000
-BLOCKED_FETCH_DOMAINS = {
-    "sciencedirect.com",
-    "wiley.com",
-    "onlinelibrary.wiley.com",
-    "ieee.org",
-    "ieeexplore.ieee.org",
-    "nature.com",
-}
 SOURCE_TYPE_RULES = {
     "github.com": "github",
     "arxiv.org": "arxiv",
@@ -319,8 +311,7 @@ def classify_source_type(url: str) -> str:
 
 def fetch_content(url: str) -> dict[str, Any]:
     parsed = urlparse(url)
-    host = parsed.netloc.lower()
-    if any(host == domain or host.endswith(f".{domain}") for domain in BLOCKED_FETCH_DOMAINS):
+    if is_blocked_host(url):
         return {
             "title": "",
             "content_md": "",
